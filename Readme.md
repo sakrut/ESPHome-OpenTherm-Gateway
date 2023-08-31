@@ -2,7 +2,7 @@
 
 [![build](https://github.com/rsciriano/ESPHome-OpenTherm/actions/workflows/build.yml/badge.svg)](https://github.com/rsciriano/ESPHome-OpenTherm/actions/workflows/build.yml)
 
-This is an example of a integration with a OpenTherm boiler using [ESPHome](https://esphome.io/) and the [Ihor Melnyk](http://ihormelnyk.com/opentherm_adapter), the [DIYLESS](https://diyless.com/product/esp8266-thermostat-shield) or the [TheHogNL](https://www.tindie.com/products/thehognl/opentherm-master-shield-for-wemoslolin/) OpenTherm Adapter 
+This is an example of a integration with a OpenTherm boiler using [ESPHome](https://esphome.io/) and the [Ihor Melnyk](http://ihormelnyk.com/opentherm_adapter), the [DIYLESS](https://diyless.com/product/esp8266-opentherm-gateway) as a gateway (Controller -> Gateway -> Boiler)
 
 ## Installation
 - Copy the content of this repository to your ESPHome folder
@@ -13,7 +13,5 @@ This is an example of a integration with a OpenTherm boiler using [ESPHome](http
 - Flash the ESP and configure in Home Assistant. It should be auto-discovered by the ESPHome Integration.
 
 ## Additional info
-
-> I am working in a new version of this integration, completely rewriting it as an [external component](https://esphome.io/components/external_components.html). You can see the progress in [this branch](https://github.com/rsciriano/ESPHome-OpenTherm/tree/external-component)
-
-> I have pending to write a detailed documentation, I promise to do it for the new version. Until then you have lot of info in [this issue](https://github.com/rsciriano/ESPHome-OpenTherm/issues/37#issuecomment-1288779030), thanks to [@foltymat](https://github.com/foltymat)
+In this example, the Controller still controls the boiler, but we can read data from the boiler. 
+We're working on accurately reading data about the set point for hot water and allowing the injection of set points.
