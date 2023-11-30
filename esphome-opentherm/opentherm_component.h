@@ -1,10 +1,7 @@
 #include "esphome.h"
 #include "esphome/components/sensor/sensor.h"
 #include "OpenTherm.h"
-#include "opentherm_switch.h"
 #include "opentherm_climate.h"
-#include "opentherm_binary.h"
-#include "opentherm_output.h"
 
 // Pins to OpenTherm Adapter
 int inPin = 4; 
@@ -27,9 +24,8 @@ IRAM_ATTR void sHandleInterrupt() {
 class OpenthermComponent: public PollingComponent {
 private:
   const char *TAG = "opentherm_component";
-
+  static unsigned long  _lastStatusResponse;
 public:
-  Switch *thermostatSwitch = new OpenthermSwitch();
   Sensor *external_temperature_sensor = new Sensor();
   Sensor *return_temperature_sensor = new Sensor();
   Sensor *boiler_temperature = new Sensor();
@@ -38,9 +34,9 @@ public:
   Sensor *heating_target_temperature_sensor = new Sensor();
   OpenthermClimate *hotWaterClimate = new OpenthermClimate();
   OpenthermClimate *heatingWaterClimate = new OpenthermClimate();
-  BinarySensor *flame = new OpenthermBinarySensor();
+  BinarySensor *flame = new BinarySensor();
   
-  OpenthermComponent(): PollingComponent(60000) {
+  OpenthermComponent(): PollingComponent(30000) {
   }
   
   void setup() override {
@@ -51,84 +47,79 @@ public:
       ot.begin(handleInterrupt);
       sOT.begin(sHandleInterrupt, processRequest);
 
-      thermostatSwitch->add_on_state_callback([=](bool state) -> void {
-        ESP_LOGD ("opentherm_component", "termostatSwitch_on_state_callback %d", state);    
-      });
-
-      hotWaterClimate->set_temperature_settings(5, 6);
-      heatingWaterClimate->set_temperature_settings(0, 0);
+      hotWaterClimate->setTargetTemperatureSetter([this](float temperature) {
+            this->setHotWaterTemperature(temperature);
+        });
       hotWaterClimate->setup();
+      
+      heatingWaterClimate->setTargetTemperatureSetter([this](float temperature) {
+            this->setHeatingTargetTemperature(temperature);
+        });
       heatingWaterClimate->setup();
   }
 
   float getExternalTemperature() {
       unsigned long response = ot.sendRequest(ot.buildRequest(OpenThermRequestType::READ, OpenThermMessageID::Toutside, 0));
-      return ot.isValidResponse(response) ? ot.getFloat(response) : -1;
+      return ot.isValidResponse(response) ? ot.getFloat(response) : NAN;
   }
   float getHeatingTargetTemperature() {
       unsigned long response = ot.sendRequest(ot.buildRequest(OpenThermRequestType::READ, OpenThermMessageID::TSet, 0));
-      return ot.isValidResponse(response) ? ot.getFloat(response) : -1;
+      return ot.isValidResponse(response) ? ot.getFloat(response) : NAN;
   }
 
   float getReturnTemperature() {
       unsigned long response = ot.sendRequest(ot.buildRequest(OpenThermRequestType::READ, OpenThermMessageID::Tret, 0));
-      return ot.isValidResponse(response) ? ot.getFloat(response) : -1;
+      return ot.isValidResponse(response) ? ot.getFloat(response) : NAN;
   }
   
   float getHotWaterTargetTemperature() {
       unsigned long response = ot.sendRequest(ot.buildRequest(OpenThermRequestType::READ, OpenThermMessageID::TdhwSet, 0));
-      return ot.isValidResponse(response) ? ot.getFloat(response) : -1;
+      return ot.isValidResponse(response) ? ot.getFloat(response) : NAN;
   }
   float getHotWaterTemperature() {
       unsigned long response = ot.sendRequest(ot.buildRequest(OpenThermRequestType::READ, OpenThermMessageID::Tdhw, 0));
-      return ot.isValidResponse(response) ? ot.getFloat(response) : -1;
+      return ot.isValidResponse(response) ? ot.getFloat(response) : NAN;
   }
 
   float getRoomTemperature() {
       unsigned long response = ot.sendRequest(ot.buildRequest(OpenThermRequestType::READ, OpenThermMessageID::Tr, 0));
-      return ot.isValidResponse(response) ? ot.getFloat(response) : -1;
+      return ot.isValidResponse(response) ? ot.getFloat(response) : NAN;
   }
 
   bool setHotWaterTemperature(float temperature) {
-	    unsigned int data = ot.temperatureToData(temperature);
+      unsigned int data = ot.temperatureToData(temperature);
       unsigned long request = ot.buildRequest(OpenThermRequestType::WRITE, OpenThermMessageID::TdhwSet, data);
+      unsigned long response = ot.sendRequest(request);
+      return ot.isValidResponse(response);
+  }
+
+  bool setHeatingTargetTemperature(float temperature) {
+      unsigned int data = ot.temperatureToData(temperature);
+      unsigned long request = ot.buildRequest(OpenThermRequestType::WRITE, OpenThermMessageID::TSet, data);
       unsigned long response = ot.sendRequest(request);
       return ot.isValidResponse(response);
   }
 
   float getModulation() {
     unsigned long response = ot.sendRequest(ot.buildRequest(OpenThermRequestType::READ, OpenThermMessageID::RelModLevel, 0));
-    return ot.isValidResponse(response) ? ot.getFloat(response) : -1;
+    return ot.isValidResponse(response) ? ot.getFloat(response) : NAN;
   }
 
   float getPressure() {
     unsigned long response = ot.sendRequest(ot.buildRequest(OpenThermRequestType::READ, OpenThermMessageID::CHPressure, 0));
-    return ot.isValidResponse(response) ? ot.getFloat(response) : -1;
+    return ot.isValidResponse(response) ? ot.getFloat(response) : NAN;
   }
 
   void update() override {
-
-    ESP_LOGD("opentherm_component", "update heatingWaterClimate: %i", heatingWaterClimate->mode);
-    ESP_LOGD("opentherm_component", "update hotWaterClimate: %i", hotWaterClimate->mode);
-    
-    bool enableCentralHeating = heatingWaterClimate->mode == ClimateMode::CLIMATE_MODE_HEAT;
-    bool enableHotWater = hotWaterClimate->mode == ClimateMode::CLIMATE_MODE_HEAT;
-    bool enableCooling = false; // this boiler is for heating only
-
     
     //Set/Get Boiler Status
-    auto response = ot.setBoilerStatus(enableCentralHeating, enableHotWater, enableCooling);
-    bool isFlameOn = ot.isFlameOn(response);
-    bool isCentralHeatingActive = ot.isCentralHeatingActive(response);
-    bool isHotWaterActive = ot.isHotWaterActive(response);
+    //auto response = ot.setBoilerStatus(true, true, false);
+    bool isFlameOn = ot.isFlameOn(_lastStatusResponse);
+    bool isCentralHeatingActive = ot.isCentralHeatingActive(_lastStatusResponse);
+    bool isHotWaterActive = ot.isHotWaterActive(_lastStatusResponse);
     float return_temperature = getReturnTemperature();
     float hotWater_temperature = getHotWaterTemperature();
 
-  
-    
-
-    // Set hot water temperature
-    /////setHotWaterTemperature(hotWaterClimate->target_temperature);
 
     float boilerTemperature = ot.getBoilerTemperature();
     float ext_temperature = getExternalTemperature();
@@ -154,22 +145,47 @@ public:
     
     // Publish status of thermostat that controls heating
     heatingWaterClimate->current_temperature = boilerTemperature;
-    heatingWaterClimate->action = isCentralHeatingActive && isFlameOn ? ClimateAction::CLIMATE_ACTION_HEATING : ClimateAction::CLIMATE_ACTION_OFF;
-    hotWaterClimate->target_temperature = getHeatingTargetTemperature();
+    heatingWaterClimate->action = isCentralHeatingActive ? ClimateAction::CLIMATE_ACTION_HEATING : ClimateAction::CLIMATE_ACTION_OFF;
+    heatingWaterClimate->target_temperature = getHeatingTargetTemperature();
     heatingWaterClimate->publish_state();
   }
 
   
   static void processRequest(unsigned long request, OpenThermResponseStatus status) {
-    const byte msgType = (request << 1) >> 29;
-    const int dataId = (request >> 16) & 0xFF;
-    
+  
     unsigned long _lastRresponse = ot.sendRequest(request);
     sOT.sendResponse(_lastRresponse);
 
+    OpenThermMessageID id = ot.getDataID(request);
+    uint16_t data = ot.getUInt(request);
+    float f = ot.getFloat(request);
+    switch(id)
+    {
+      case OpenThermMessageID::Status:
+      {
+        _lastStatusResponse = _lastRresponse;
+        ESP_LOGI("opentherm_component", "lastStatusResponse: %i", _lastStatusResponse);
+        break;
+      }
+      case OpenThermMessageID::TSet:
+      {
+        break;
+      }
+      case OpenThermMessageID::Tboiler:
+      {
+        break;
+      }
+      default:
+      {
+      }
+    }
+
+    
   }
 
   void loop() override {
     sOT.process();
   }
 };
+
+unsigned long OpenthermComponent::_lastStatusResponse = 0;

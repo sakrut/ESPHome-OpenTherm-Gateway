@@ -24,26 +24,16 @@ logger:
 api:
 ota:
 
+dallas:
+  - pin: 14
+    update_interval: 5min
+
 custom_component:
   - lambda: |-
       auto opentherm = new OpenthermComponent();
       return {opentherm};
     components:
       - id: opentherm
-
-output:
-  - platform: custom
-    type: float
-    lambda: |-
-      OpenthermComponent *openthermComp = (OpenthermComponent*) id(opentherm);
-      auto opentherm_pid_output = new OpenthermFloatOutput();
-      openthermComp->set_pid_output(opentherm_pid_output);
-      App.register_component(opentherm_pid_output);     
-      return {opentherm_pid_output};
-    outputs:
-      id: pid_output
-      #min_power: 30.00%
-      #max_power: 60.00%
 
 sensor:
   - platform: custom
@@ -63,41 +53,24 @@ sensor:
       accuracy_decimals: 1
     - name: "External Temperature"
       unit_of_measurement: °C
-      accuracy_decimals: 0  
+      accuracy_decimals: 1
     - name: "Return Temperature"
       unit_of_measurement: °C
       accuracy_decimals: 1
     - name: "Heating Water Pressure"
       unit_of_measurement: hPa
-      accuracy_decimals: 1
+      accuracy_decimals: 2
     - name: "Boiler Modulation"
       unit_of_measurement: "%"
-      accuracy_decimals: 0
+      accuracy_decimals: 1
     - name: "Heating Target Temperature"
       unit_of_measurement: °C
       accuracy_decimals: 1
-      
-  - platform: homeassistant
-    id: temperature_sensor
-    entity_id: sensor.temperature_sensor
-    name: "Actual temperature"
-    unit_of_measurement: °C
-  - platform: template
-    id: temperature_sensor_interval
-    name: "Actual temperature interval"
-    lambda: |-
-      return id(temperature_sensor).state;
-    update_interval: 1s
-  - platform: pid
-    name: "PID Climate Result"
-    type: RESULT    
-  - platform: pid
-    name: "PID Climate HEAT"
-    type: HEAT    
-  - platform: pid
-    name: "PID Climate ERROR"
-    type: ERROR    
 
+  - platform: dallas
+    address: 0x6b276f750e64ff28
+    name: "Temperature Sensor 1"
+      
 binary_sensor:
   - platform: custom
     lambda: |-
@@ -106,18 +79,6 @@ binary_sensor:
     binary_sensors:
     - name: "Flame"
       #device_class: heat
-
-switch:
-  - platform: custom
-    lambda: |-
-      OpenthermComponent *openthermComp = (OpenthermComponent*) id(opentherm);
-      return {openthermComp->thermostatSwitch};
-    switches:
-      name: "Disable PID"
-  - platform: template
-    name: "PID Climate Autotune"
-    turn_on_action:
-      - climate.pid.autotune: pid_climate      
 
 climate:
   - platform: custom
@@ -132,17 +93,3 @@ climate:
         name: "Hot water"
       - id: heating_water
         name: "Heating water"
-  - platform: pid
-    id: pid_climate
-    name: "PID Climate Controller"
-    visual:
-      min_temperature: 16 °C
-      max_temperature: 28 °C
-      temperature_step: 0.5 °C
-    sensor: temperature_sensor_interval
-    default_target_temperature: 20°C
-    heat_output: pid_output
-    control_parameters:
-      kp: 0.38197
-      ki: 0.01012
-      kd: 3.60387
