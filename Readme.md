@@ -1,4 +1,4 @@
-# ESPHome OpenTherm
+# ESPHome OpenTherm Gateway
 
 [![build](https://github.com/rsciriano/ESPHome-OpenTherm/actions/workflows/build.yml/badge.svg)](https://github.com/rsciriano/ESPHome-OpenTherm/actions/workflows/build.yml)
 
