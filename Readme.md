@@ -1,6 +1,6 @@
 # ESPHome OpenTherm Gateway
 
-[![build](https://github.com/rsciriano/ESPHome-OpenTherm/actions/workflows/build.yml/badge.svg)](https://github.com/rsciriano/ESPHome-OpenTherm/actions/workflows/build.yml)
+[![build](https://github.com/sakrut/ESPHome-OpenTherm-Gateway/actions/workflows/build.yml/badge.svg)](https://github.com/sakrut/ESPHome-OpenTherm-Gateway/actions/workflows/build.yml)
 
 This is an example of a integration with a OpenTherm boiler using [ESPHome](https://esphome.io/) and the [Ihor Melnyk](http://ihormelnyk.com/opentherm_adapter), the [DIYLESS](https://diyless.com/product/esp8266-opentherm-gateway) as a gateway (Controller -> Gateway -> Boiler)
 
