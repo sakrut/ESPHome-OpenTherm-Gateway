@@ -35,7 +35,12 @@ public:
   OpenthermClimate *hotWaterClimate = new OpenthermClimate();
   OpenthermClimate *heatingWaterClimate = new OpenthermClimate();
   BinarySensor *flame = new BinarySensor();
-  
+  BinarySensor *ch_active = new BinarySensor();
+  BinarySensor *dhw_active = new BinarySensor();
+  BinarySensor *fault = new BinarySensor();
+  BinarySensor *diagnostic = new BinarySensor();
+
+
   OpenthermComponent(): PollingComponent(30000) {
   }
   
@@ -117,9 +122,10 @@ public:
     bool isFlameOn = ot.isFlameOn(_lastStatusResponse);
     bool isCentralHeatingActive = ot.isCentralHeatingActive(_lastStatusResponse);
     bool isHotWaterActive = ot.isHotWaterActive(_lastStatusResponse);
+    bool isFault = ot.isFault(_lastStatusResponse);
+    bool isDiagnostic = ot.isDiagnostic(_lastStatusResponse);
     float return_temperature = getReturnTemperature();
     float hotWater_temperature = getHotWaterTemperature();
-
 
     float boilerTemperature = ot.getBoilerTemperature();
     float ext_temperature = getExternalTemperature();
@@ -128,6 +134,11 @@ public:
 
     // Publish sensor values
     flame->publish_state(isFlameOn); 
+    ch_active->publish_state(isCentralHeatingActive); 
+    dhw_active->publish_state(isHotWaterActive); 
+    fault->publish_state(isFault); 
+    diagnostic->publish_state(isDiagnostic); 
+
     external_temperature_sensor->publish_state(ext_temperature);
     return_temperature_sensor->publish_state(return_temperature);
     boiler_temperature->publish_state(boilerTemperature);

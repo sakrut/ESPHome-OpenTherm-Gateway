@@ -75,10 +75,24 @@ binary_sensor:
   - platform: custom
     lambda: |-
       OpenthermComponent *openthermComp = (OpenthermComponent*) id(opentherm);
-      return {openthermComp->flame};
+      return {
+        openthermComp->flame,
+        openthermComp->ch_active,
+        openthermComp->dhw_active,
+        openthermComp->fault,
+        openthermComp->diagnostic
+        };
     binary_sensors:
     - name: "Flame"
-      #device_class: heat
+      device_class: heat
+    - name: "Central Heating Active"
+      device_class: heat
+    - name: "Hot Water Active"
+      device_class: heat
+    - name: "Fault"
+      device_class: problem
+    - name: "Diagnostic"
+
 
 climate:
   - platform: custom
