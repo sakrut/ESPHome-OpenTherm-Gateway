@@ -1,0 +1,161 @@
+# Example configuration for OpenTherm Gateway
+# Platform: ESP8266 (NodeMCU or similar)
+# Author: Your Name
+# Repository: https://github.com/sakrut/ESPHome-OpenTherm-Gateway
+
+substitutions:
+  device_name: opentherm_gateway
+  friendly_name: OpenTherm Gateway
+
+esphome:
+  name: ${device_name}
+  friendly_name: ${friendly_name}
+  comment: "ESPHome OpenTherm Gateway for integrating with heating boilers"
+
+esp8266:
+  board: nodemcuv2
+
+# Enable logging
+logger:
+  level: DEBUG
+  logs:
+    opentherm.component: DEBUG
+
+# Enable Home Assistant API
+api:
+  encryption:
+    key: "hO+ZpI4ff3w/pBFIZ73rf8KSb/AmMd7s4sor0R979nI="
+
+ota:
+  - platform: esphome
+    password: "33accf2b3910ac1a8b861d374cfe4f39"
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  
+  # Enable fallback hotspot in case wifi connection fails
+  ap:
+    ssid: "${device_name}_AP"
+    password: "YOUR_AP_PASSWORD"
+
+captive_portal:
+
+# External components setup
+external_components:
+  - source:
+      type: local
+      path: components
+
+# For manual/local installation, use:
+# external_components:
+#   - source: local
+#     components: [ opentherm ]
+
+# Dashboard web UI
+web_server:
+  port: 80
+
+# OpenTherm component configuration
+climate:
+binary_sensor:
+
+opentherm:
+  id: opentherm_gateway
+  # Pin configuration (for ESP8266/NodeMCU)
+  in_pin: 4      # D2 on NodeMCU
+  out_pin: 5     # D1 on NodeMCU
+  slave_in_pin: 12  # D6 on NodeMCU
+  slave_out_pin: 13 # D7 on NodeMCU
+  
+  # Binary sensors
+  flame:
+    name: "${friendly_name} Flame"
+    id: boiler_flame
+    
+  ch_active:
+    name: "${friendly_name} Central Heating"
+    id: ch_active
+    
+  dhw_active:
+    name: "${friendly_name} Hot Water"
+    id: dhw_active
+    
+  fault:
+    name: "${friendly_name} Fault"
+    id: boiler_fault
+    
+  diagnostic:
+    name: "${friendly_name} Diagnostic"
+    id: boiler_diagnostic
+  
+  # Temperature and other sensors
+  external_temperature:
+    name: "${friendly_name} External Temperature"
+    id: external_temp
+    
+  return_temperature:
+    name: "${friendly_name} Return Temperature"
+    id: return_temp
+    
+  boiler_temperature:
+    name: "${friendly_name} Boiler Temperature"
+    id: boiler_temp
+    
+  pressure:
+    name: "${friendly_name} System Pressure"
+    id: system_pressure
+    
+  modulation:
+    name: "${friendly_name} Modulation Level"
+    id: modulation_level
+    
+  heating_target_temperature:
+    name: "${friendly_name} Heating Target"
+    id: heating_target
+  
+  # Climate controls
+  hot_water_climate:
+    name: "${friendly_name} Hot Water"
+    id: hot_water
+    
+  heating_water_climate:
+    name: "${friendly_name} Central Heating"
+    id: central_heating
+
+# Add a button to force a status update (optional)
+button:
+  - platform: restart
+    name: "${friendly_name} Restart"
+    id: restart_button
+
+# Add a couple of template sensors to show additional information (optional)
+sensor:
+  - platform: template
+    name: "${friendly_name} Status"
+    id: boiler_status
+    lambda: |-
+      if (id(boiler_fault).state) {
+        return 3; // Fault
+      } else if (id(boiler_flame).state) {
+        return 2; // Burning
+      } else if (id(ch_active).state || id(dhw_active).state) {
+        return 1; // Active
+      } else {
+        return 0; // Idle
+      }
+    filters:
+      - lambda: return x;
+    unit_of_measurement: ""
+    accuracy_decimals: 0
+    state_class: "measurement"
+    icon: "mdi:radiator"
+    entity_category: "diagnostic"
+    
+  - platform: uptime
+    name: "${friendly_name} Uptime"
+    id: uptime_sensor
+    update_interval: 60s
+    filters:
+      - lambda: return x / 3600.0;
+    unit_of_measurement: "h"
