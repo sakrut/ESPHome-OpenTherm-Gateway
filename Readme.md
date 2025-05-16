@@ -2,7 +2,7 @@
 
 [![build](https://github.com/sakrut/ESPHome-OpenTherm-Gateway/actions/workflows/build.yml/badge.svg)](https://github.com/sakrut/ESPHome-OpenTherm-Gateway/actions/workflows/build.yml)
 
-An ESPHome external component for integrating with OpenTherm boilers using [Ihor Melnyk's OpenTherm adapter](http://ihormelnyk.com/opentherm_adapter) or [DIYLESS ESP8266 OpenTherm Gateway](https://diyless.com/product/esp8266-opentherm-gateway). This component works as a gateway between your smart home system (Controller) and your boiler.
+An ESPHome external component for integrating with OpenTherm boilers using [Ihor Melnyk's OpenTherm adapter](http://ihormelnyk.com/opentherm_adapter) or [DIYLESS ESP8266 OpenTherm Gateway](https://diyless.com/product/esp8266-opentherm-gateway). This component works as a gateway between your boiler controller and your boiler (man in the middle).
 
 ## Features
 
@@ -104,6 +104,9 @@ If you encounter issues:
 2. Verify the OpenTherm adapter is properly connected to both the ESP and the boiler
 3. Check ESPHome logs for communication errors
 4. Ensure the OpenTherm library is properly installed
+
+
+![image](https://github.com/user-attachments/assets/26b1cef0-c159-4238-ae4a-82fa8ff81236)
 
 ## Dependencies
 
