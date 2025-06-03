@@ -9,15 +9,15 @@ from esphome.const import (
     CONF_TARGET_TEMPERATURE_LOW,
     CONF_TEMPERATURE,
 )
-from . import opentherm_ns, OpenthermComponent, OpenthermClimate
+from . import opentherm_ns, OpenthermComponent, OpenthermClimate, ClimateType
 
 CONF_OPENTHERM_ID = "opentherm_id"
 CONF_CLIMATE_TYPE = "climate_type"
 
 ClimateType = opentherm_ns.enum("ClimateType")
 CLIMATE_TYPES = {
-    "hot_water": opentherm_ns.namespace.HOT_WATER,
-    "heating_water":  opentherm_ns.namespace.HEATING_WATER
+    "hot_water": ClimateType.HOT_WATER,
+    "heating_water": ClimateType.HEATING_WATER,
 }
 
 CONFIG_SCHEMA = climate.CLIMATE_SCHEMA.extend({
