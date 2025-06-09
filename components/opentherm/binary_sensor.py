@@ -5,7 +5,7 @@ from esphome.const import (
     DEVICE_CLASS_HEAT,
     DEVICE_CLASS_PROBLEM,
 )
-from . import opentherm_ns, OpenthermComponent, CONF_ID
+from . import OpenthermComponent, CONF_ID
 
 DEPENDENCIES = ["opentherm"]
 CODEOWNERS = ["@yourusername"]

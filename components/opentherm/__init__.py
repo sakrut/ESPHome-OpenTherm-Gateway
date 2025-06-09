@@ -3,7 +3,6 @@ import esphome.config_validation as cv
 from esphome.components import binary_sensor, sensor, climate
 from esphome.const import (
     CONF_ID,
-    CONF_TEMPERATURE,
     DEVICE_CLASS_HEAT,
     DEVICE_CLASS_TEMPERATURE,
     DEVICE_CLASS_PRESSURE,
@@ -188,6 +187,9 @@ async def to_code(config):
         await climate.register_climate(heating_var, heating_conf)
         cg.add(heating_var.set_climate_type(ClimateType.HEATING_WATER))
         cg.add(var.register_climate(heating_var))
-    
+
     # Add library dependencies
     cg.add_library("ihormelnyk/OpenTherm Library", "1.1.4")
+
+    # Register restart_boiler service
+    cg.add(var.register_service("restart_boiler", {}, var.restart_boiler))

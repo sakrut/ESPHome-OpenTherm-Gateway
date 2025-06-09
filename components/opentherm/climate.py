@@ -3,11 +3,6 @@ import esphome.config_validation as cv
 from esphome.components import climate
 from esphome.const import (
     CONF_ID,
-    CONF_MODE,
-    CONF_TARGET_TEMPERATURE,
-    CONF_TARGET_TEMPERATURE_HIGH,
-    CONF_TARGET_TEMPERATURE_LOW,
-    CONF_TEMPERATURE,
 )
 from . import opentherm_ns, OpenthermComponent, OpenthermClimate
 

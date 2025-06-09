@@ -11,6 +11,7 @@ An ESPHome external component for integrating with OpenTherm boilers using [Ihor
 - Control heating and hot water temperature setpoints
 - Monitor faults and diagnostics
 - Full integration with Home Assistant via ESPHome
+- Restart the boiler using a dedicated service
 
 ## Installation
 
@@ -80,6 +81,18 @@ opentherm:
     name: "Hot Water"
   heating_water_climate:
     name: "Central Heating"
+```
+
+### Restarting the Boiler
+
+The component exposes a `restart_boiler` service that sends a reset command to the boiler. You can call it from Home Assistant or define a template button:
+
+```yaml
+button:
+  - platform: template
+    name: "Boiler Restart"
+    on_press:
+      - opentherm.restart_boiler
 ```
 
 ## Wiring

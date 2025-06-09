@@ -68,6 +68,9 @@ namespace esphome
       float getModulation();
       float getPressure();
 
+      // Restart the boiler via OpenTherm command
+      bool restart_boiler();
+
       // Process OpenTherm requests - needs to be static for the interrupt handler
       static void processRequest(unsigned long request, OpenThermResponseStatus status);
 

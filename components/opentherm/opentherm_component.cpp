@@ -197,6 +197,14 @@ namespace esphome
       return ot_->isValidResponse(response) ? ot_->getFloat(response) : NAN;
     }
 
+    bool OpenthermComponent::restart_boiler()
+    {
+      // Send command 1 which most boilers interpret as a reset/restart request
+      unsigned long request = ot_->buildRequest(OpenThermRequestType::WRITE, OpenThermMessageID::Command, 1);
+      unsigned long response = ot_->sendRequest(request);
+      return ot_->isValidResponse(response);
+    }
+
     void OpenthermComponent::processRequest(unsigned long request, OpenThermResponseStatus status)
     {
       if (instance_ != nullptr && instance_->ot_ != nullptr && instance_->slave_ot_ != nullptr)

@@ -9,7 +9,7 @@ from esphome.const import (
     UNIT_PERCENT,
     UNIT_HECTOPASCAL,
 )
-from . import opentherm_ns, OpenthermComponent, CONF_ID
+from . import OpenthermComponent, CONF_ID
 
 DEPENDENCIES = ["opentherm"]
 CODEOWNERS = ["@yourusername"]

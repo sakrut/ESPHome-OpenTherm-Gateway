@@ -125,6 +125,10 @@ button:
   - platform: restart
     name: "${friendly_name} Restart"
     id: restart_button
+  - platform: template
+    name: "${friendly_name} Boiler Restart"
+    on_press:
+      - opentherm.restart_boiler
 
 # Add a couple of template sensors to show additional information (optional)
 sensor:
