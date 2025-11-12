@@ -109,6 +109,26 @@ namespace esphome
       // Last status response
       static unsigned long last_status_response_;
 
+      // Cached sensor values with timestamps (value updated by processRequest or explicit poll)
+      struct CachedValue {
+        float value{NAN};
+        unsigned long last_update{0};
+      };
+
+      CachedValue cached_external_temp_;
+      CachedValue cached_return_temp_;
+      CachedValue cached_boiler_temp_;
+      CachedValue cached_pressure_;
+      CachedValue cached_modulation_;
+      CachedValue cached_heating_target_;
+      CachedValue cached_dhw_temp_;
+      CachedValue cached_dhw_target_;
+
+      const unsigned long CACHE_TIMEOUT_{60000};  // 1 minute in ms
+
+      // Helper to get cached value or fetch if stale
+      float getCachedOrFetch(CachedValue &cache, OpenThermMessageID msg_id);
+
       // Interrupt handlers
       static void IRAM_ATTR handleInterrupt();
       static void IRAM_ATTR slaveHandleInterrupt();

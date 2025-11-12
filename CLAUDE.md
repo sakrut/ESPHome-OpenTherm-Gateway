@@ -32,11 +32,12 @@ The component intercepts OpenTherm requests from the thermostat, forwards them t
 Key implementation details:
 - Two OpenTherm library instances: `ot_` (master) and `slave_ot_` (slave)
 - Static singleton pattern (`instance_`) for interrupt handlers
-- `processRequest()` is the core intercept function that forwards requests
+- `processRequest()` is the core intercept function that forwards requests and caches sensor values
 - `last_status_response_` caches the most recent status for sensor publishing
-- Component polls every 10 seconds (PollingComponent base) for responsive feedback
+- Component polls every 30 seconds (PollingComponent base)
+- **Smart caching**: Values intercepted from thermostat↔boiler communication are cached with 1-minute timeout
+- Only stale cached values trigger actual requests to the boiler, minimizing bus overhead
 - Interrupt-driven communication via `IRAM_ATTR` handlers
-- Automatic DHW watchdog monitors for boiler freeze conditions
 - Immediate verification after temperature setpoint changes
 
 ### Climate Entity Pattern
@@ -127,16 +128,18 @@ Default pins match NodeMCU/ESP8266 layout:
 - Temperature setpoints can be overridden via the climate entities
 - If the boiler has heating curves enabled, it may ignore the setpoint override
 - All sensors are optional in the configuration
-- **Polling interval**: 10 seconds (fast enough for responsive UI, slow enough to not overwhelm the bus)
+- **Polling interval**: 30 seconds for publishing sensor states to Home Assistant
+- **Smart caching**: Sensor values are cached from intercepted thermostat↔boiler communication (1-minute timeout)
+  - If termostat regularly requests a value, gateway uses the cached value (zero additional bus traffic)
+  - If cache expires (no request from thermostat for >1 minute), gateway requests it directly
 - **Immediate feedback**: When setting temperatures via climate entities, the component verifies the setpoint immediately and updates the UI
-- **Automatic recovery**: DHW watchdog monitors for boiler freeze conditions and triggers automatic reset
 
 ### Boiler Reset Button
 
 The component provides an optional reset button that sends the OpenTherm BLOR (Boiler Lock-Out Reset) command. This is useful for:
 - Recovering from fault conditions without physical access to the boiler
 - Clearing lockout states remotely via Home Assistant
-- Automatic recovery when triggered by the DHW watchdog
+- Can be used in Home Assistant automations for automatic recovery based on sensor conditions
 
 Example configuration:
 ```yaml
@@ -253,39 +256,39 @@ All interrupt handlers must be marked `IRAM_ATTR` and access only static members
 ### Component Lifecycle
 1. **setup()** - Initialize OpenTherm instances, register climate callbacks
 2. **loop()** - Process slave OpenTherm communication (`slave_ot_->process()`)
-3. **update()** - Called every 10 seconds to read sensors, check DHW watchdog, and publish states
-4. **processRequest()** - Static callback for intercepting thermostat requests
+3. **update()** - Called every 30 seconds to read sensors (using cache) and publish states to Home Assistant
+4. **processRequest()** - Static callback for intercepting thermostat requests and caching sensor values
 
-### DHW Watchdog Feature
+### Smart Caching System
 
-The component includes automatic monitoring for DHW (Domestic Hot Water) freeze conditions:
+The component implements intelligent caching to minimize OpenTherm bus traffic:
 
-**Problem**: Some boilers can enter a stuck state where the DHW temperature drops significantly below the setpoint (e.g., from 55°C setpoint to 38°C actual) and heating doesn't resume. This typically requires a manual power cycle.
+**How it works**:
+1. All thermostat→boiler communication flows through `processRequest()`
+2. When a response contains sensor data (temperature, pressure, modulation, etc.), it's cached with a timestamp
+3. When Home Assistant requests sensor updates (every 30s), the component checks cache first:
+   - **Cache fresh** (< 1 minute old): Use cached value, **zero bus traffic**
+   - **Cache stale** (> 1 minute old): Request from boiler, update cache
 
-**Solution**: The watchdog monitors DHW temperature every polling cycle (10 seconds) and triggers an automatic reset if:
-- DHW temperature is 10°C or more below the setpoint
-- This condition persists for 5 minutes continuously
+**Cached Data IDs**:
+- `Toutside` (27) - External temperature
+- `Tret` (28) - Return water temperature
+- `Tboiler` (25) - Boiler water temperature
+- `CHPressure` (18) - Central heating pressure
+- `RelModLevel` (17) - Relative modulation level
+- `TSet` (1) - CH water temperature setpoint
+- `Tdhw` (26) - DHW temperature
+- `TdhwSet` (56) - DHW setpoint
 
-**Configuration Constants** (in [opentherm_component.h](components/opentherm/opentherm_component.h#L117-L118)):
+**Benefits**:
+- Reduces active polling requests by ~80-90% if thermostat regularly queries these values
+- Gateway remains transparent - doesn't add delay to thermostat↔boiler communication
+- Fallback polling ensures values are available even if thermostat doesn't request them
+
+**Configuration** (in [opentherm_component.h](components/opentherm/opentherm_component.h#L127)):
 ```cpp
-const float DHW_WATCHDOG_TEMP_DIFF_{10.0f};        // Temperature difference threshold (°C)
-const unsigned long DHW_WATCHDOG_TIME_{300000};    // Time threshold (5 minutes in ms)
+const unsigned long CACHE_TIMEOUT_{60000};  // 1 minute in milliseconds
 ```
-
-**Behavior**:
-1. When temperature drops below setpoint by 10°C, watchdog starts monitoring
-2. Every 60 seconds during the watchdog period, a warning is logged
-3. After 5 minutes, if condition persists, automatic `sendBoilerReset()` is triggered
-4. If temperature recovers before timeout, watchdog resets automatically
-5. Successful reset clears the watchdog state
-
-**Logging**:
-- `DHW Watchdog: Temperature X°C is Y°C below setpoint Z°C - monitoring started` - Initial trigger
-- `DHW Watchdog: Temperature still X°C below setpoint (elapsed / total seconds)` - Periodic status (every 60s)
-- `DHW Watchdog TRIGGERED! Attempting automatic boiler reset...` - Reset triggered
-- `DHW Watchdog: Temperature recovered to X°C - watchdog reset` - Condition cleared
-
-This feature can be disabled by commenting out the `checkDHWWatchdog()` call in [opentherm_component.cpp](components/opentherm/opentherm_component.cpp#L63) `update()` method.
 
 ## Debugging and Common Issues
 
@@ -307,9 +310,9 @@ logger:
 
 ### Common OpenTherm Request Patterns
 - **Status requests** are periodic and critical - they update `last_status_response_` which feeds all binary sensors
-- **Temperature reads** happen in `update()` every 10 seconds
+- **Temperature reads** use smart caching - if thermostat requested the value recently (<1 min), cached value is used
 - **Temperature writes** happen immediately when climate entity target is changed, with immediate verification
-- The component doesn't modify requests from the thermostat, it only intercepts and forwards them
+- The component doesn't modify requests from the thermostat, it only intercepts, forwards, and caches responses
 
 ### Temperature Setpoint Verification
 

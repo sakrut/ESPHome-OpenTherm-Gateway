@@ -12,7 +12,7 @@ namespace esphome
     OpenthermComponent *OpenthermComponent::instance_ = nullptr;
     unsigned long OpenthermComponent::last_status_response_ = 0;
 
-    OpenthermComponent::OpenthermComponent() : PollingComponent(10000)  // Changed from 30s to 10s for faster feedback
+    OpenthermComponent::OpenthermComponent() : PollingComponent(30000)  // 30s polling - cache reduces actual requests
     {
       instance_ = this;
     }
@@ -74,10 +74,10 @@ namespace esphome
       if (diagnostic_ != nullptr)
         diagnostic_->publish_state(is_diagnostic);
 
-      // Temperature and other sensors
+      // Temperature and other sensors (using cache with timeout)
       float ext_temperature = getExternalTemperature();
       float return_temperature = getReturnTemperature();
-      float boiler_temperature = ot_->getBoilerTemperature();
+      float boiler_temperature = getCachedOrFetch(cached_boiler_temp_, OpenThermMessageID::Tboiler);
       float pressure = getPressure();
       float modulation = getModulation();
       float heating_target_temp = getHeatingTargetTemperature();
@@ -135,32 +135,27 @@ namespace esphome
 
     float OpenthermComponent::getExternalTemperature()
     {
-      unsigned long response = ot_->sendRequest(ot_->buildRequest(OpenThermRequestType::READ, OpenThermMessageID::Toutside, 0));
-      return ot_->isValidResponse(response) ? ot_->getFloat(response) : NAN;
+      return getCachedOrFetch(cached_external_temp_, OpenThermMessageID::Toutside);
     }
 
     float OpenthermComponent::getHeatingTargetTemperature()
     {
-      unsigned long response = ot_->sendRequest(ot_->buildRequest(OpenThermRequestType::READ, OpenThermMessageID::TSet, 0));
-      return ot_->isValidResponse(response) ? ot_->getFloat(response) : NAN;
+      return getCachedOrFetch(cached_heating_target_, OpenThermMessageID::TSet);
     }
 
     float OpenthermComponent::getReturnTemperature()
     {
-      unsigned long response = ot_->sendRequest(ot_->buildRequest(OpenThermRequestType::READ, OpenThermMessageID::Tret, 0));
-      return ot_->isValidResponse(response) ? ot_->getFloat(response) : NAN;
+      return getCachedOrFetch(cached_return_temp_, OpenThermMessageID::Tret);
     }
 
     float OpenthermComponent::getHotWaterTargetTemperature()
     {
-      unsigned long response = ot_->sendRequest(ot_->buildRequest(OpenThermRequestType::READ, OpenThermMessageID::TdhwSet, 0));
-      return ot_->isValidResponse(response) ? ot_->getFloat(response) : NAN;
+      return getCachedOrFetch(cached_dhw_target_, OpenThermMessageID::TdhwSet);
     }
 
     float OpenthermComponent::getHotWaterTemperature()
     {
-      unsigned long response = ot_->sendRequest(ot_->buildRequest(OpenThermRequestType::READ, OpenThermMessageID::Tdhw, 0));
-      return ot_->isValidResponse(response) ? ot_->getFloat(response) : NAN;
+      return getCachedOrFetch(cached_dhw_temp_, OpenThermMessageID::Tdhw);
     }
 
     float OpenthermComponent::getRoomTemperature()
@@ -232,14 +227,12 @@ namespace esphome
 
     float OpenthermComponent::getModulation()
     {
-      unsigned long response = ot_->sendRequest(ot_->buildRequest(OpenThermRequestType::READ, OpenThermMessageID::RelModLevel, 0));
-      return ot_->isValidResponse(response) ? ot_->getFloat(response) : NAN;
+      return getCachedOrFetch(cached_modulation_, OpenThermMessageID::RelModLevel);
     }
 
     float OpenthermComponent::getPressure()
     {
-      unsigned long response = ot_->sendRequest(ot_->buildRequest(OpenThermRequestType::READ, OpenThermMessageID::CHPressure, 0));
-      return ot_->isValidResponse(response) ? ot_->getFloat(response) : NAN;
+      return getCachedOrFetch(cached_pressure_, OpenThermMessageID::CHPressure);
     }
 
     void OpenthermComponent::processRequest(unsigned long request, OpenThermResponseStatus status)
@@ -250,12 +243,101 @@ namespace esphome
         instance_->slave_ot_->sendResponse(response);
 
         OpenThermMessageID id = instance_->ot_->getDataID(request);
+
+        // Update status response
         if (id == OpenThermMessageID::Status)
         {
           last_status_response_ = response;
           ESP_LOGD(TAG, "Updated status response: %lu", last_status_response_);
         }
+
+        // Cache values from intercepted requests (only if response is valid)
+        if (instance_->ot_->isValidResponse(response))
+        {
+          unsigned long now = millis();
+
+          switch (id)
+          {
+            case OpenThermMessageID::Toutside:
+              instance_->cached_external_temp_.value = instance_->ot_->getFloat(response);
+              instance_->cached_external_temp_.last_update = now;
+              ESP_LOGV(TAG, "Cached external temp: %.1f°C", instance_->cached_external_temp_.value);
+              break;
+
+            case OpenThermMessageID::Tret:
+              instance_->cached_return_temp_.value = instance_->ot_->getFloat(response);
+              instance_->cached_return_temp_.last_update = now;
+              ESP_LOGV(TAG, "Cached return temp: %.1f°C", instance_->cached_return_temp_.value);
+              break;
+
+            case OpenThermMessageID::Tboiler:
+              instance_->cached_boiler_temp_.value = instance_->ot_->getFloat(response);
+              instance_->cached_boiler_temp_.last_update = now;
+              ESP_LOGV(TAG, "Cached boiler temp: %.1f°C", instance_->cached_boiler_temp_.value);
+              break;
+
+            case OpenThermMessageID::CHPressure:
+              instance_->cached_pressure_.value = instance_->ot_->getFloat(response);
+              instance_->cached_pressure_.last_update = now;
+              ESP_LOGV(TAG, "Cached pressure: %.1f bar", instance_->cached_pressure_.value);
+              break;
+
+            case OpenThermMessageID::RelModLevel:
+              instance_->cached_modulation_.value = instance_->ot_->getFloat(response);
+              instance_->cached_modulation_.last_update = now;
+              ESP_LOGV(TAG, "Cached modulation: %.1f%%", instance_->cached_modulation_.value);
+              break;
+
+            case OpenThermMessageID::TSet:
+              instance_->cached_heating_target_.value = instance_->ot_->getFloat(response);
+              instance_->cached_heating_target_.last_update = now;
+              ESP_LOGV(TAG, "Cached heating target: %.1f°C", instance_->cached_heating_target_.value);
+              break;
+
+            case OpenThermMessageID::Tdhw:
+              instance_->cached_dhw_temp_.value = instance_->ot_->getFloat(response);
+              instance_->cached_dhw_temp_.last_update = now;
+              ESP_LOGV(TAG, "Cached DHW temp: %.1f°C", instance_->cached_dhw_temp_.value);
+              break;
+
+            case OpenThermMessageID::TdhwSet:
+              instance_->cached_dhw_target_.value = instance_->ot_->getFloat(response);
+              instance_->cached_dhw_target_.last_update = now;
+              ESP_LOGV(TAG, "Cached DHW target: %.1f°C", instance_->cached_dhw_target_.value);
+              break;
+
+            default:
+              // Other message IDs not cached
+              break;
+          }
+        }
       }
+    }
+
+    float OpenthermComponent::getCachedOrFetch(CachedValue &cache, OpenThermMessageID msg_id)
+    {
+      unsigned long now = millis();
+
+      // Check if cache is fresh (updated within last minute)
+      if (!std::isnan(cache.value) && (now - cache.last_update) < CACHE_TIMEOUT_)
+      {
+        ESP_LOGV(TAG, "Using cached value for msg_id %d: %.2f (age: %lu ms)",
+                 static_cast<int>(msg_id), cache.value, now - cache.last_update);
+        return cache.value;
+      }
+
+      // Cache is stale or empty - fetch from boiler
+      ESP_LOGV(TAG, "Cache stale/empty for msg_id %d, fetching from boiler", static_cast<int>(msg_id));
+      unsigned long response = ot_->sendRequest(ot_->buildRequest(OpenThermRequestType::READ, msg_id, 0));
+
+      if (ot_->isValidResponse(response))
+      {
+        cache.value = ot_->getFloat(response);
+        cache.last_update = now;
+        return cache.value;
+      }
+
+      return NAN;
     }
 
     void IRAM_ATTR OpenthermComponent::handleInterrupt()
