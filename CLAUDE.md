@@ -12,10 +12,14 @@ ESPHome OpenTherm Gateway - An ESPHome external component that acts as a man-in-
 
 This is an ESPHome external component with the standard structure:
 - `components/opentherm/` - Main component directory
-  - `__init__.py` - ESPHome component registration and config validation
+  - `__init__.py` - Main component registration, defines the opentherm hub and all directly attached sensors/binary sensors
   - `opentherm_component.{h,cpp}` - Core C++ gateway implementation
   - `opentherm_climate.{h,cpp}` - Climate entity implementation for HA
-  - `binary_sensor.py`, `sensor.py`, `climate.py` - Platform integrations
+  - `sensor.py`, `binary_sensor.py`, `climate.py` - **Separate platform integrations** (alternative configuration style, not used in main examples)
+
+**Important**: This component supports two configuration patterns:
+1. **Hub pattern** (used in examples): Define sensors directly under the `opentherm:` component
+2. **Platform pattern**: Define sensors separately under `sensor:`, `binary_sensor:`, `climate:` platforms (requires `opentherm_id` reference)
 
 ### Gateway Architecture (Critical)
 
@@ -43,26 +47,69 @@ Each climate entity uses a callback pattern to communicate temperature changes b
 
 ## Build and Test Commands
 
-### Local Build
+### Local Build with Docker (Recommended)
 ```bash
 # Create secrets file (required for build)
 echo -e "wifi_ssid: 'test_ssid'\nwifi_password: 'test_password'\nesphome_fallback_password: 'fallback'" > secrets.yaml
 
-# Build using Docker (recommended)
+# Build using Docker
 docker run --rm -v "${PWD}":/config esphome/esphome compile build.yaml
 
-# Or build example configuration
+# Build example configuration (includes all sensors)
 docker run --rm -v "${PWD}":/config esphome/esphome compile example_opentherm.yaml
 ```
 
+### Local Build with ESPHome Installed
+```bash
+# Install ESPHome (if not already installed)
+pip install esphome
+
+# Create secrets file
+echo -e "wifi_ssid: 'test_ssid'\nwifi_password: 'test_password'\nesphome_fallback_password: 'fallback'" > secrets.yaml
+
+# Compile
+esphome compile build.yaml
+```
+
+### Validation Without Full Build
+```bash
+# Validate Python syntax
+python -m py_compile components/opentherm/__init__.py
+python -m py_compile components/opentherm/sensor.py
+python -m py_compile components/opentherm/binary_sensor.py
+python -m py_compile components/opentherm/climate.py
+
+# ESPHome config validation (faster than full compile)
+esphome config build.yaml
+```
+
 ### CI/CD
-The GitHub Actions workflow (`.github/workflows/build.yml`) automatically builds `build.yaml` on push/PR to main.
+The GitHub Actions workflow (`.github/workflows/build.yml`) automatically builds `build.yaml` on push/PR to main. The workflow:
+1. Creates a dummy `secrets.yaml` with placeholder values
+2. Builds using the official `esphome/esphome` Docker image
+3. Validates the component compiles successfully
 
 ## Component Dependencies
 
 - ESPHome 2022.5.0 or newer
 - OpenTherm Library 1.1.4 (automatically installed via `cg.add_library()`)
 - Required ESPHome platforms: binary_sensor, sensor, climate
+
+## OpenTherm Protocol Documentation
+
+Official OpenTherm Protocol Specification v2.2 is available in [doc/Opentherm Protocol v2-2.pdf](doc/Opentherm Protocol v2-2.pdf). This document contains:
+- Physical layer specifications (Manchester encoding, 1000 bits/sec)
+- Data-link layer protocol (32-bit frames with parity)
+- Application layer with 7 data classes
+- Complete list of 128 predefined Data IDs (0-127)
+
+Key protocol facts:
+- Point-to-point Master/Slave communication (Room Unit = Master, Boiler = Slave)
+- Manchester encoding at 1000 bits/sec nominal
+- 32-bit frames: Parity(1) + MsgType(3) + Spare(4) + DataID(8) + DataValue(16)
+- Message types: READ-DATA, WRITE-DATA, INVALID-DATA, and corresponding ACK/responses
+- Timing: Master must communicate every 1 sec (+15%), Slave responds in 20-800ms
+- Two-wire polarity-free connection with concurrent power supply and data
 
 ## Configuration Notes
 
@@ -96,20 +143,116 @@ external_components:
 
 ## Code Modification Guidelines
 
-### Adding New Sensors
-1. Add constant in `__init__.py` (CONF_*)
-2. Add to CONFIG_SCHEMA with appropriate ESPHome schema
-3. Add pointer in `opentherm_component.h`
-4. Add setter method in `opentherm_component.h`
-5. Register in `to_code()` in `__init__.py`
-6. Implement reading logic in `update()` in `opentherm_component.cpp`
+### Adding New Sensors to Main Component
+When adding sensors to the hub pattern (recommended approach):
 
-### OpenTherm Protocol
-- Use `ot_->buildRequest()` to construct requests
-- Request types: READ, WRITE (from OpenThermRequestType enum)
-- Message IDs defined in OpenTherm Library (e.g., OpenThermMessageID::TSet)
-- Always check `ot_->isValidResponse()` before processing
-- Convert temperatures with `ot_->temperatureToData()` and `ot_->getFloat()`
+1. **In `__init__.py`:**
+   - Add constant: `CONF_NEW_SENSOR = "new_sensor"`
+   - Add to `CONFIG_SCHEMA` with appropriate `sensor.sensor_schema()` or `binary_sensor.binary_sensor_schema()`
+   - Add registration in `to_code()`:
+     ```python
+     if CONF_NEW_SENSOR in config:
+         sens = await sensor.new_sensor(config[CONF_NEW_SENSOR])
+         cg.add(var.set_new_sensor(sens))
+     ```
+
+2. **In `opentherm_component.h`:**
+   - Add pointer: `sensor::Sensor *new_sensor_{nullptr};`
+   - Add setter: `void set_new_sensor(sensor::Sensor *sensor) { new_sensor_ = sensor; }`
+
+3. **In `opentherm_component.cpp`:**
+   - Implement reading in `update()`:
+     ```cpp
+     float new_value = getNewValue();  // Add getter if needed
+     if (new_sensor_ != nullptr && !std::isnan(new_value))
+         new_sensor_->publish_state(new_value);
+     ```
+   - Add getter method if reading from boiler:
+     ```cpp
+     float OpenthermComponent::getNewValue() {
+         unsigned long response = ot_->sendRequest(
+             ot_->buildRequest(OpenThermRequestType::READ, OpenThermMessageID::NewID, 0));
+         return ot_->isValidResponse(response) ? ot_->getFloat(response) : NAN;
+     }
+     ```
+
+### Adding Platform Sensors (Alternative)
+For platform-based sensors (separate `sensor:`, `binary_sensor:` sections), modify the respective platform files (`sensor.py`, `binary_sensor.py`, `climate.py`) instead of `__init__.py`. Note: This pattern requires users to reference the hub via `opentherm_id`.
+
+### OpenTherm Protocol Details
+
+**Request Construction:**
+```cpp
+unsigned long request = ot_->buildRequest(
+    OpenThermRequestType::READ,      // or WRITE
+    OpenThermMessageID::TSet,        // Message ID from OpenTherm library
+    data                              // 0 for READ, actual data for WRITE
+);
+unsigned long response = ot_->sendRequest(request);
+```
+
+**Common Message IDs (from OpenTherm spec):**
+- `0` - Status flags (Master and Slave) - **MANDATORY**
+- `1` - Control setpoint (TSet) - CH water temp setpoint - **MANDATORY**
+- `3` - Slave configuration flags - **MANDATORY**
+- `5` - Application-specific fault flags / OEM fault code
+- `14` - Maximum relative modulation level setting
+- `17` - Relative modulation level - **MANDATORY**
+- `18` - CH water pressure
+- `25` - Boiler water temperature - **MANDATORY**
+- `26` - DHW temperature (Tdhw)
+- `27` - Outside temperature (Toutside)
+- `28` - Return water temperature (Tret)
+- `56` - DHW setpoint (TdhwSet)
+- `57` - Max CH water setpoint
+- `115` - OEM diagnostic code
+- `124/125` - OpenTherm version (Master/Slave)
+
+**Data Classes (Section 5.3 of spec):**
+1. Control and Status Information (IDs 0, 1, 5, 8, 115)
+2. Configuration Information (IDs 2, 3, 124-127)
+3. Remote Commands (ID 4)
+4. Sensor and Informational Data (IDs 16-33, 116-123)
+5. Pre-Defined Remote Boiler Parameters (IDs 6, 48-63)
+6. Transparent Slave Parameters (IDs 10-11)
+7. Fault History Data (IDs 12-13)
+8. Control of Special Applications (IDs 7, 9, 14-15, 100)
+
+**Response Handling:**
+- Always check `ot_->isValidResponse(response)` before using data
+- Extract float values: `ot_->getFloat(response)`
+- Convert temperatures for WRITE: `ot_->temperatureToData(float_temp)`
+- Extract status bits: `ot_->isFlameOn(response)`, `ot_->isCentralHeatingActive(response)`, etc.
 
 ### Interrupt Safety
-All interrupt handlers must be marked `IRAM_ATTR` and access only static members or members via the static `instance_` pointer.
+All interrupt handlers must be marked `IRAM_ATTR` and access only static members or members via the static `instance_` pointer. The handlers (`handleInterrupt()`, `slaveHandleInterrupt()`) and callback (`processRequest()`) follow this pattern.
+
+### Component Lifecycle
+1. **setup()** - Initialize OpenTherm instances, register climate callbacks
+2. **loop()** - Process slave OpenTherm communication (`slave_ot_->process()`)
+3. **update()** - Called every 30 seconds to read sensors and publish states
+4. **processRequest()** - Static callback for intercepting thermostat requests
+
+## Debugging and Common Issues
+
+### Enable Debug Logging
+Add to your YAML configuration:
+```yaml
+logger:
+  level: DEBUG
+  logs:
+    opentherm.component: DEBUG
+    opentherm.climate: DEBUG
+```
+
+### Key Debugging Points
+1. **No sensor readings**: Check that `last_status_response_` is being updated in `processRequest()`
+2. **Climate controls not working**: Verify the callback is set in `setup()` and that WRITE requests return valid responses
+3. **Gateway not intercepting**: Ensure `slave_ot_->process()` is called in `loop()` and pins are correctly configured
+4. **Interrupt issues**: Verify IRAM_ATTR marking and static instance pointer access
+
+### Common OpenTherm Request Patterns
+- **Status requests** are periodic and critical - they update `last_status_response_` which feeds all binary sensors
+- **Temperature reads** happen in `update()` every 30 seconds
+- **Temperature writes** happen immediately when climate entity target is changed
+- The component doesn't modify requests from the thermostat, it only intercepts and forwards them
