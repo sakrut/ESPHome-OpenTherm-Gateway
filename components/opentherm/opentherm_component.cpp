@@ -12,7 +12,7 @@ namespace esphome
     OpenthermComponent *OpenthermComponent::instance_ = nullptr;
     unsigned long OpenthermComponent::last_status_response_ = 0;
 
-    OpenthermComponent::OpenthermComponent() : PollingComponent(30000)
+    OpenthermComponent::OpenthermComponent() : PollingComponent(10000)  // Changed from 30s to 10s for faster feedback
     {
       instance_ = this;
     }
@@ -171,18 +171,63 @@ namespace esphome
 
     bool OpenthermComponent::setHotWaterTemperature(float temperature)
     {
+      ESP_LOGI(TAG, "Setting DHW temperature to %.1f°C", temperature);
       unsigned int data = ot_->temperatureToData(temperature);
       unsigned long request = ot_->buildRequest(OpenThermRequestType::WRITE, OpenThermMessageID::TdhwSet, data);
       unsigned long response = ot_->sendRequest(request);
-      return ot_->isValidResponse(response);
+
+      if (ot_->isValidResponse(response)) {
+        // Verify the setpoint was accepted by reading it back
+        float actual_setpoint = getHotWaterTargetTemperature();
+        if (!std::isnan(actual_setpoint)) {
+          ESP_LOGI(TAG, "DHW setpoint verified: %.1f°C (requested: %.1f°C)", actual_setpoint, temperature);
+
+          // Update climate entity immediately with verified value
+          if (hot_water_climate_ != nullptr) {
+            hot_water_climate_->target_temperature = actual_setpoint;
+            hot_water_climate_->publish_state();
+          }
+
+          // Check if setpoint was clamped by boiler (e.g., min 35°C)
+          if (std::abs(actual_setpoint - temperature) > 1.0f) {
+            ESP_LOGW(TAG, "DHW setpoint was adjusted by boiler (min/max limits?)");
+          }
+        }
+        return true;
+      }
+
+      ESP_LOGE(TAG, "Failed to set DHW temperature");
+      return false;
     }
 
     bool OpenthermComponent::setHeatingTargetTemperature(float temperature)
     {
+      ESP_LOGI(TAG, "Setting CH temperature to %.1f°C", temperature);
       unsigned int data = ot_->temperatureToData(temperature);
       unsigned long request = ot_->buildRequest(OpenThermRequestType::WRITE, OpenThermMessageID::TSet, data);
       unsigned long response = ot_->sendRequest(request);
-      return ot_->isValidResponse(response);
+
+      if (ot_->isValidResponse(response)) {
+        // Verify the setpoint was accepted
+        float actual_setpoint = getHeatingTargetTemperature();
+        if (!std::isnan(actual_setpoint)) {
+          ESP_LOGI(TAG, "CH setpoint verified: %.1f°C (requested: %.1f°C)", actual_setpoint, temperature);
+
+          // Update climate entity immediately
+          if (heating_water_climate_ != nullptr) {
+            heating_water_climate_->target_temperature = actual_setpoint;
+            heating_water_climate_->publish_state();
+          }
+
+          if (std::abs(actual_setpoint - temperature) > 1.0f) {
+            ESP_LOGW(TAG, "CH setpoint was adjusted by boiler (min/max limits?)");
+          }
+        }
+        return true;
+      }
+
+      ESP_LOGE(TAG, "Failed to set CH temperature");
+      return false;
     }
 
     float OpenthermComponent::getModulation()
@@ -227,6 +272,39 @@ namespace esphome
       {
         instance_->slave_ot_->handleInterrupt();
       }
+    }
+
+    bool OpenthermComponent::sendBoilerReset()
+    {
+      ESP_LOGW(TAG, "Sending Boiler Lock-Out Reset (BLOR) command");
+
+      // Build WRITE-DATA command with Command-Code 1 (BLOR) as per OpenTherm spec section 5.3.3
+      unsigned long request = ot_->buildRequest(
+          OpenThermRequestType::WRITE,
+          OpenThermMessageID::Command,  // Data ID 4
+          0x0100);                      // HB=1 (BLOR command), LB=0
+
+      unsigned long response = ot_->sendRequest(request);
+
+      if (ot_->isValidResponse(response))
+      {
+        // Extract command response code from low byte
+        uint8_t cmd_response = response & 0xFF;
+
+        if (cmd_response >= 128)
+        {
+          ESP_LOGI(TAG, "Boiler reset command completed successfully (response: %d)", cmd_response);
+          return true;
+        }
+        else
+        {
+          ESP_LOGW(TAG, "Boiler reset command failed (response: %d)", cmd_response);
+          return false;
+        }
+      }
+
+      ESP_LOGE(TAG, "Boiler reset command - no valid response");
+      return false;
     }
 
   } // namespace opentherm

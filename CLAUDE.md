@@ -34,8 +34,10 @@ Key implementation details:
 - Static singleton pattern (`instance_`) for interrupt handlers
 - `processRequest()` is the core intercept function that forwards requests
 - `last_status_response_` caches the most recent status for sensor publishing
-- Component polls every 30 seconds (PollingComponent base)
+- Component polls every 10 seconds (PollingComponent base) for responsive feedback
 - Interrupt-driven communication via `IRAM_ATTR` handlers
+- Automatic DHW watchdog monitors for boiler freeze conditions
+- Immediate verification after temperature setpoint changes
 
 ### Climate Entity Pattern
 
@@ -125,6 +127,27 @@ Default pins match NodeMCU/ESP8266 layout:
 - Temperature setpoints can be overridden via the climate entities
 - If the boiler has heating curves enabled, it may ignore the setpoint override
 - All sensors are optional in the configuration
+- **Polling interval**: 10 seconds (fast enough for responsive UI, slow enough to not overwhelm the bus)
+- **Immediate feedback**: When setting temperatures via climate entities, the component verifies the setpoint immediately and updates the UI
+- **Automatic recovery**: DHW watchdog monitors for boiler freeze conditions and triggers automatic reset
+
+### Boiler Reset Button
+
+The component provides an optional reset button that sends the OpenTherm BLOR (Boiler Lock-Out Reset) command. This is useful for:
+- Recovering from fault conditions without physical access to the boiler
+- Clearing lockout states remotely via Home Assistant
+- Automatic recovery when triggered by the DHW watchdog
+
+Example configuration:
+```yaml
+button:
+  - platform: opentherm
+    opentherm_id: opentherm_gateway
+    name: "OpenTherm Reset Boiler"
+    icon: "mdi:restart-alert"
+```
+
+The button sends a WRITE-DATA command with Data ID 4 (Command) and Command-Code 1 (BLOR) as per OpenTherm Protocol Specification section 5.3.3.
 
 ## Testing Configuration
 
@@ -230,8 +253,39 @@ All interrupt handlers must be marked `IRAM_ATTR` and access only static members
 ### Component Lifecycle
 1. **setup()** - Initialize OpenTherm instances, register climate callbacks
 2. **loop()** - Process slave OpenTherm communication (`slave_ot_->process()`)
-3. **update()** - Called every 30 seconds to read sensors and publish states
+3. **update()** - Called every 10 seconds to read sensors, check DHW watchdog, and publish states
 4. **processRequest()** - Static callback for intercepting thermostat requests
+
+### DHW Watchdog Feature
+
+The component includes automatic monitoring for DHW (Domestic Hot Water) freeze conditions:
+
+**Problem**: Some boilers can enter a stuck state where the DHW temperature drops significantly below the setpoint (e.g., from 55°C setpoint to 38°C actual) and heating doesn't resume. This typically requires a manual power cycle.
+
+**Solution**: The watchdog monitors DHW temperature every polling cycle (10 seconds) and triggers an automatic reset if:
+- DHW temperature is 10°C or more below the setpoint
+- This condition persists for 5 minutes continuously
+
+**Configuration Constants** (in [opentherm_component.h](components/opentherm/opentherm_component.h#L117-L118)):
+```cpp
+const float DHW_WATCHDOG_TEMP_DIFF_{10.0f};        // Temperature difference threshold (°C)
+const unsigned long DHW_WATCHDOG_TIME_{300000};    // Time threshold (5 minutes in ms)
+```
+
+**Behavior**:
+1. When temperature drops below setpoint by 10°C, watchdog starts monitoring
+2. Every 60 seconds during the watchdog period, a warning is logged
+3. After 5 minutes, if condition persists, automatic `sendBoilerReset()` is triggered
+4. If temperature recovers before timeout, watchdog resets automatically
+5. Successful reset clears the watchdog state
+
+**Logging**:
+- `DHW Watchdog: Temperature X°C is Y°C below setpoint Z°C - monitoring started` - Initial trigger
+- `DHW Watchdog: Temperature still X°C below setpoint (elapsed / total seconds)` - Periodic status (every 60s)
+- `DHW Watchdog TRIGGERED! Attempting automatic boiler reset...` - Reset triggered
+- `DHW Watchdog: Temperature recovered to X°C - watchdog reset` - Condition cleared
+
+This feature can be disabled by commenting out the `checkDHWWatchdog()` call in [opentherm_component.cpp](components/opentherm/opentherm_component.cpp#L63) `update()` method.
 
 ## Debugging and Common Issues
 
@@ -253,6 +307,27 @@ logger:
 
 ### Common OpenTherm Request Patterns
 - **Status requests** are periodic and critical - they update `last_status_response_` which feeds all binary sensors
-- **Temperature reads** happen in `update()` every 30 seconds
-- **Temperature writes** happen immediately when climate entity target is changed
+- **Temperature reads** happen in `update()` every 10 seconds
+- **Temperature writes** happen immediately when climate entity target is changed, with immediate verification
 - The component doesn't modify requests from the thermostat, it only intercepts and forwards them
+
+### Temperature Setpoint Verification
+
+When setting DHW or CH temperatures via climate entities, the component implements immediate verification:
+
+1. **User sets temperature** in Home Assistant
+2. **Component sends WRITE command** to boiler with the requested temperature
+3. **Immediate verification** - Component reads back the actual setpoint from the boiler
+4. **UI update** - Climate entity is updated with the verified value (not the requested value)
+5. **Warning logged** if boiler clamped the value due to min/max limits
+
+This provides instant feedback if the boiler rejects or modifies the setpoint (e.g., user sets 20°C but boiler minimum is 35°C).
+
+Example log output:
+```
+[I][opentherm.component] Setting DHW temperature to 20.0°C
+[I][opentherm.component] DHW setpoint verified: 35.0°C (requested: 20.0°C)
+[W][opentherm.component] DHW setpoint was adjusted by boiler (min/max limits?)
+```
+
+Implementation in [opentherm_component.cpp](components/opentherm/opentherm_component.cpp#L175-L204) `setHotWaterTemperature()` and [opentherm_component.cpp](components/opentherm/opentherm_component.cpp#L206-L234) `setHeatingTargetTemperature()`.

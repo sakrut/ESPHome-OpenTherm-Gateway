@@ -120,11 +120,18 @@ opentherm:
     name: "${friendly_name} Central Heating"
     id: central_heating
 
-# Add a button to force a status update (optional)
+# Add buttons
 button:
   - platform: restart
-    name: "${friendly_name} Restart"
+    name: "${friendly_name} Restart ESP"
     id: restart_button
+
+  # Boiler reset button (BLOR command)
+  - platform: opentherm
+    opentherm_id: opentherm_gateway
+    name: "${friendly_name} Reset Boiler"
+    id: reset_boiler_button
+    icon: "mdi:restart-alert"
 
 # Add a couple of template sensors to show additional information (optional)
 sensor:
