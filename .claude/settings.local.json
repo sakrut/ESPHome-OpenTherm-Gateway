@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(secrets.yaml)",
+      "Bash(docker run:*)",
+      "Bash(python -m pip:*)",
+      "Bash(python:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
