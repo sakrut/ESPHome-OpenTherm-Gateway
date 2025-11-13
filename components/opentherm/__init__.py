@@ -110,12 +110,12 @@ CONFIG_SCHEMA = cv.Schema({
         device_class=DEVICE_CLASS_PROBLEM,
     ),
     cv.Optional(CONF_DIAGNOSTIC): binary_sensor.binary_sensor_schema(),
-    cv.Optional(CONF_HOT_WATER_CLIMATE): climate.CLIMATE_SCHEMA.extend({
-        cv.GenerateID(): cv.declare_id(OpenthermClimate),
-    }),
-    cv.Optional(CONF_HEATING_WATER_CLIMATE): climate.CLIMATE_SCHEMA.extend({
-        cv.GenerateID(): cv.declare_id(OpenthermClimate),
-    }),
+    cv.Optional(CONF_HOT_WATER_CLIMATE): climate.climate_schema(
+        OpenthermClimate,
+    ),
+    cv.Optional(CONF_HEATING_WATER_CLIMATE): climate.climate_schema(
+        OpenthermClimate,
+    ),
 }).extend(cv.COMPONENT_SCHEMA)
 
 
