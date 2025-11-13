@@ -128,7 +128,9 @@ Default pins match NodeMCU/ESP8266 layout:
 - Temperature setpoints can be overridden via the climate entities
 - If the boiler has heating curves enabled, it may ignore the setpoint override
 - All sensors are optional in the configuration
-- **Polling interval**: 30 seconds for publishing sensor states to Home Assistant
+- **Polling interval**: Configurable via `update_interval` (default: 30 seconds) - determines how often sensor states are published to Home Assistant
+  - Example: `update_interval: 60s` for slower updates
+  - Valid units: `s` (seconds), `min` (minutes), `ms` (milliseconds)
 - **Smart caching**: Sensor values are cached from intercepted thermostat↔boiler communication (1-minute timeout)
   - If termostat regularly requests a value, gateway uses the cached value (zero additional bus traffic)
   - If cache expires (no request from thermostat for >1 minute), gateway requests it directly
@@ -165,6 +167,26 @@ For testing as an external component (production usage):
 external_components:
   - source: github://sakrut/ESPHome-OpenTherm-Gateway
     components: [ opentherm ]
+```
+
+### Configuration Options
+
+The component supports the following optional parameters:
+
+```yaml
+opentherm:
+  id: opentherm_gateway
+  # Pin configuration (required)
+  in_pin: 4
+  out_pin: 5
+  slave_in_pin: 12
+  slave_out_pin: 13
+
+  # Update interval (optional, default: 30s)
+  update_interval: 60s  # Can be in seconds (s), minutes (min), or milliseconds (ms)
+
+  # All sensors, binary sensors, and climate entities are optional
+  # See example_opentherm.yaml for complete list
 ```
 
 ## Code Modification Guidelines
@@ -255,8 +277,8 @@ All interrupt handlers must be marked `IRAM_ATTR` and access only static members
 
 ### Component Lifecycle
 1. **setup()** - Initialize OpenTherm instances, register climate callbacks
-2. **loop()** - Process slave OpenTherm communication (`slave_ot_->process()`)
-3. **update()** - Called every 30 seconds to read sensors (using cache) and publish states to Home Assistant
+2. **loop()** - Process slave OpenTherm communication (`slave_ot_->process()`) and intercepted responses
+3. **update()** - Called at the configured `update_interval` (default: 30s) to read sensors (using cache) and publish states to Home Assistant
 4. **processRequest()** - Static callback for intercepting thermostat requests and caching sensor values
 
 ### Smart Caching System

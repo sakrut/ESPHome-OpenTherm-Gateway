@@ -4,6 +4,7 @@ from esphome.components import binary_sensor, sensor, climate
 from esphome.const import (
     CONF_ID,
     CONF_TEMPERATURE,
+    CONF_UPDATE_INTERVAL,
     DEVICE_CLASS_HEAT,
     DEVICE_CLASS_TEMPERATURE,
     DEVICE_CLASS_PRESSURE,
@@ -13,6 +14,8 @@ from esphome.const import (
     UNIT_PERCENT,
     UNIT_HECTOPASCAL,
 )
+from esphome import config_validation as cv
+import esphome.core as core
 
 
 CODEOWNERS = ["@sakrut"]
@@ -58,6 +61,7 @@ CONFIG_SCHEMA = cv.Schema({
     cv.Required(CONF_OUT_PIN): cv.int_,
     cv.Required(CONF_SLAVE_IN_PIN): cv.int_,
     cv.Required(CONF_SLAVE_OUT_PIN): cv.int_,
+    cv.Optional(CONF_UPDATE_INTERVAL, default="30s"): cv.positive_time_period_milliseconds,
     cv.Optional(CONF_EXTERNAL_TEMPERATURE): sensor.sensor_schema(
         unit_of_measurement=UNIT_CELSIUS,
         accuracy_decimals=1,
@@ -117,9 +121,9 @@ CONFIG_SCHEMA = cv.Schema({
 
 
 async def to_code(config):
-    var = cg.new_Pvariable(config[CONF_ID])
+    var = cg.new_Pvariable(config[CONF_ID], config[CONF_UPDATE_INTERVAL])
     await cg.register_component(var, config)
-    
+
     # Add pins to component
     cg.add(var.set_in_pin(config[CONF_IN_PIN]))
     cg.add(var.set_out_pin(config[CONF_OUT_PIN]))

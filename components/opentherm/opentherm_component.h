@@ -26,7 +26,7 @@ namespace esphome
     class OpenthermComponent : public PollingComponent
     {
     public:
-      OpenthermComponent();
+      OpenthermComponent(uint32_t update_interval);
 
       void setup() override;
       void loop() override;

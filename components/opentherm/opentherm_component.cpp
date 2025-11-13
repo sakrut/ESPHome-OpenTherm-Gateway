@@ -15,7 +15,7 @@ namespace esphome
     OpenThermMessageID OpenthermComponent::last_intercepted_id_ = static_cast<OpenThermMessageID>(0);
     bool OpenthermComponent::has_new_intercepted_response_ = false;
 
-    OpenthermComponent::OpenthermComponent() : PollingComponent(30000)  // 30s polling - cache reduces actual requests
+    OpenthermComponent::OpenthermComponent(uint32_t update_interval) : PollingComponent(update_interval)
     {
       instance_ = this;
     }

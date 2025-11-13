@@ -30,7 +30,7 @@ api:
   encryption:
     key: !secret api_encryption_key
 
- ota:
+ota:
   - platform: esphome
     password: "YOUR_OTA_PASSWORD"
 
