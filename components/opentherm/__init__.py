@@ -16,8 +16,8 @@ from esphome.const import (
 
 
 CODEOWNERS = ["@sakrut"]
-DEPENDENCIES = ["binary_sensor", "sensor", "climate"]
-REQUIRED_DEPENDENCIES = ["binary_sensor", "sensor", "climate"]
+# All sensors/climate are optional, so no required dependencies
+# DEPENDENCIES = ["binary_sensor", "sensor", "climate"]
 # Component constants
 CONF_FLAME = "flame"
 CONF_CH_ACTIVE = "ch_active"

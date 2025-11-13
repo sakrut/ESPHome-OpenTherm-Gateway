@@ -4,7 +4,8 @@
       "Bash(secrets.yaml)",
       "Bash(docker run:*)",
       "Bash(python -m pip:*)",
-      "Bash(python:*)"
+      "Bash(python:*)",
+      "Bash(example_opentherm_temp.yaml)"
     ],
     "deny": [],
     "ask": []
