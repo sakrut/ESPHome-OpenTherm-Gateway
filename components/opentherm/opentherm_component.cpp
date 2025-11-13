@@ -283,6 +283,11 @@ namespace esphome
 
         OpenThermMessageID id = instance_->ot_->getDataID(request);
 
+        // Log intercepted requests at VERBOSE level
+        ESP_LOGV(TAG, "Intercepted msg_id %d, response valid: %s",
+                 static_cast<int>(id),
+                 instance_->ot_->isValidResponse(response) ? "yes" : "no");
+
         // Update status response (critical for binary sensors)
         if (id == OpenThermMessageID::Status)
         {
@@ -369,6 +374,27 @@ namespace esphome
     {
       unsigned long now = millis();
 
+      // Handle first fetch (cache never updated) - last_update will be 0
+      if (cache.last_update == 0)
+      {
+        ESP_LOGV(TAG, "First fetch for msg_id %d", static_cast<int>(msg_id));
+        unsigned long response = ot_->sendRequest(ot_->buildRequest(OpenThermRequestType::READ, msg_id, 0));
+
+        if (ot_->isValidResponse(response))
+        {
+          cache.value = ot_->getFloat(response);
+          cache.last_update = now;
+          ESP_LOGV(TAG, "First fetch for msg_id %d: %.2f", static_cast<int>(msg_id), cache.value);
+          return cache.value;
+        }
+        else
+        {
+          ESP_LOGW(TAG, "First fetch failed for msg_id %d", static_cast<int>(msg_id));
+          cache.last_update = now; // Set timestamp to prevent immediate retry
+          return NAN;
+        }
+      }
+
       // Unsigned arithmetic handles millis() overflow correctly (wraps at 2^32)
       unsigned long cache_age = now - cache.last_update;
 
@@ -436,21 +462,30 @@ namespace esphome
           OpenThermMessageID::Command,  // Data ID 4
           0x0100);                      // HB=1 (BLOR command), LB=0
 
+      ESP_LOGD(TAG, "BLOR request: 0x%08lX", request);
       unsigned long response = ot_->sendRequest(request);
+      ESP_LOGD(TAG, "BLOR response: 0x%08lX", response);
 
       if (ot_->isValidResponse(response))
       {
-        // Extract command response code from low byte
-        uint8_t cmd_response = response & 0xFF;
+        // Extract full response data
+        uint16_t response_data = response & 0xFFFF;
+        uint8_t high_byte = (response_data >> 8) & 0xFF;
+        uint8_t low_byte = response_data & 0xFF;
 
-        if (cmd_response >= 128)
+        ESP_LOGD(TAG, "BLOR response data: HB=0x%02X (%d), LB=0x%02X (%d)",
+                 high_byte, high_byte, low_byte, low_byte);
+
+        // Check if command was accepted (response code in LB should be >= 128 for success)
+        // Or check HB for echo of command code
+        if (low_byte >= 128 || high_byte == 1)
         {
-          ESP_LOGI(TAG, "Boiler reset command completed successfully (response: %d)", cmd_response);
+          ESP_LOGI(TAG, "Boiler reset command completed successfully (HB=%d, LB=%d)", high_byte, low_byte);
           return true;
         }
         else
         {
-          ESP_LOGW(TAG, "Boiler reset command failed (response: %d)", cmd_response);
+          ESP_LOGW(TAG, "Boiler reset command failed or not supported (HB=%d, LB=%d)", high_byte, low_byte);
           return false;
         }
       }
