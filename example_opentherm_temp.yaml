@@ -21,9 +21,9 @@ esp8266:
 
 # Enable logging
 logger:
-  level: DEBUG
+  level: VERBOSE
   logs:
-    opentherm.component: DEBUG
+    opentherm.component: VERBOSE
 
 # Enable Home Assistant API
 api:

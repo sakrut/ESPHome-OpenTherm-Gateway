@@ -282,10 +282,12 @@ namespace esphome
         instance_->slave_ot_->sendResponse(response);
 
         OpenThermMessageID id = instance_->ot_->getDataID(request);
+        OpenThermMessageType msg_type = instance_->ot_->getMessageType(request);
 
         // Log intercepted requests at VERBOSE level
-        ESP_LOGV(TAG, "Intercepted msg_id %d, response valid: %s",
+        ESP_LOGV(TAG, "Intercepted msg_id %d (type %d), response valid: %s",
                  static_cast<int>(id),
+                 static_cast<int>(msg_type),
                  instance_->ot_->isValidResponse(response) ? "yes" : "no");
 
         // Update status response (critical for binary sensors)
@@ -300,6 +302,15 @@ namespace esphome
           last_intercepted_response_ = response;
           last_intercepted_id_ = id;
           has_new_intercepted_response_ = true;
+        }
+        // Also cache WRITE-DATA requests (thermostat setting values)
+        else if (msg_type == OpenThermMessageType::WRITE_DATA)
+        {
+          // For WRITE requests, cache the REQUEST data (what thermostat wants to set)
+          last_intercepted_response_ = request; // Use request, not response
+          last_intercepted_id_ = id;
+          has_new_intercepted_response_ = true;
+          ESP_LOGV(TAG, "Caching WRITE-DATA request for msg_id %d", static_cast<int>(id));
         }
       }
     }
