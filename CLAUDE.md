@@ -134,7 +134,55 @@ Default pins match NodeMCU/ESP8266 layout:
 - **Smart caching**: Sensor values are cached from intercepted thermostat↔boiler communication (1-minute timeout)
   - If termostat regularly requests a value, gateway uses the cached value (zero additional bus traffic)
   - If cache expires (no request from thermostat for >1 minute), gateway requests it directly
+  - **WRITE-DATA caching**: The component also caches WRITE requests (e.g., when thermostat sets TSet) to capture setpoint changes
 - **Immediate feedback**: When setting temperatures via climate entities, the component verifies the setpoint immediately and updates the UI
+
+### Phase 1 Features - Boiler Limits & Diagnostics
+
+The component includes Phase 1 diagnostic and limit sensors that are read automatically:
+
+**Startup-time sensors** (read once during `setup()`):
+- `max_ch_setpoint` - Maximum CH water setpoint supported by boiler (Data-ID 57)
+- `max_modulation` - Maximum relative modulation level (Data-ID 14)
+- `master_ot_version` - OpenTherm protocol version of thermostat (Data-ID 124)
+- `slave_ot_version` - OpenTherm protocol version of boiler (Data-ID 125)
+
+**Dynamic diagnostic sensors** (read during `update()` when fault/diagnostic active):
+- `oem_fault_code` - Manufacturer-specific fault code (Data-ID 5, low byte)
+- `oem_diagnostic_code` - Manufacturer-specific diagnostic code (Data-ID 115)
+
+Example configuration:
+```yaml
+opentherm:
+  id: opentherm_gateway
+  # ... pin configuration ...
+
+  # Phase 1 - Boiler Limits (read once at startup)
+  max_ch_setpoint:
+    name: "Max CH Setpoint"
+
+  max_modulation:
+    name: "Max Modulation"
+
+  master_ot_version:
+    name: "Master OT Version"
+
+  slave_ot_version:
+    name: "Slave OT Version"
+
+  # Phase 1 - Diagnostics (read when fault/diagnostic active)
+  oem_fault_code:
+    name: "OEM Fault Code"
+
+  oem_diagnostic_code:
+    name: "OEM Diagnostic Code"
+```
+
+**Benefits**:
+- Users can see their boiler's actual maximum temperature limit (helps understand why certain setpoints are rejected)
+- Better error reporting with manufacturer-specific diagnostic codes
+- Protocol version detection for compatibility checking
+- Minimal bus overhead (static values read once, diagnostics only when needed)
 
 ### Boiler Reset Button
 
@@ -243,8 +291,8 @@ unsigned long response = ot_->sendRequest(request);
 - `0` - Status flags (Master and Slave) - **MANDATORY**
 - `1` - Control setpoint (TSet) - CH water temp setpoint - **MANDATORY**
 - `3` - Slave configuration flags - **MANDATORY**
-- `5` - Application-specific fault flags / OEM fault code
-- `14` - Maximum relative modulation level setting
+- `5` - Application-specific fault flags / OEM fault code - **Phase 1: oem_fault_code**
+- `14` - Maximum relative modulation level setting - **Phase 1: max_modulation**
 - `17` - Relative modulation level - **MANDATORY**
 - `18` - CH water pressure
 - `25` - Boiler water temperature - **MANDATORY**
@@ -252,9 +300,9 @@ unsigned long response = ot_->sendRequest(request);
 - `27` - Outside temperature (Toutside)
 - `28` - Return water temperature (Tret)
 - `56` - DHW setpoint (TdhwSet)
-- `57` - Max CH water setpoint
-- `115` - OEM diagnostic code
-- `124/125` - OpenTherm version (Master/Slave)
+- `57` - Max CH water setpoint - **Phase 1: max_ch_setpoint**
+- `115` - OEM diagnostic code - **Phase 1: oem_diagnostic_code**
+- `124/125` - OpenTherm version (Master/Slave) - **Phase 1: master_ot_version / slave_ot_version**
 
 **Data Classes (Section 5.3 of spec):**
 1. Control and Status Information (IDs 0, 1, 5, 8, 115)
@@ -339,6 +387,29 @@ logger:
 2. **Climate controls not working**: Verify the callback is set in `setup()` and that WRITE requests return valid responses
 3. **Gateway not intercepting**: Ensure `slave_ot_->process()` is called in `loop()` and pins are correctly configured
 4. **Interrupt issues**: Verify IRAM_ATTR marking and static instance pointer access
+5. **Sensors stuck at 0 or not updating**:
+   - Check cache initialization - there was a bug where `last_update == 0` caused overflow in time calculations
+   - Enable VERBOSE logging to see if values are being intercepted and cached
+   - Verify thermostat is actually requesting these values (check logs for "Intercepted msg_id")
+
+### Recent Bug Fixes
+
+**Cache Initialization Issue** (Fixed):
+- **Problem**: Sensors remained at 0 or didn't update for extended periods
+- **Root Cause**: When `last_update == 0`, the expression `now - last_update` resulted in a huge number, triggering rate limiting
+- **Solution**: Special handling for `last_update == 0` to immediately fetch value on first access
+- **Impact**: Fixes sensors that weren't initializing properly
+
+**TSet WRITE-DATA Caching** (Fixed):
+- **Problem**: `heating_target_temperature` stayed at 0 even though thermostat was setting it
+- **Root Cause**: Thermostats typically use WRITE (not READ) for TSet, and component only cached READ responses
+- **Solution**: `processRequest()` now caches both READ responses AND WRITE requests
+- **Impact**: TSet and other setpoint sensors now update when thermostat sets them
+
+**BLOR Enhanced Logging** (Added):
+- **Enhancement**: Added detailed hex logging for BLOR command request/response with high/low byte breakdown
+- **Purpose**: Help diagnose why boiler reset isn't working (usually boiler isn't in lockout state)
+- **Note**: BLOR only works when boiler is actually in lockout/fault state
 
 ### Common OpenTherm Request Patterns
 - **Status requests** are periodic and critical - they update `last_status_response_` which feeds all binary sensors

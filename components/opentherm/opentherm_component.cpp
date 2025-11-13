@@ -44,6 +44,59 @@ namespace esphome
         heating_water_climate_->set_target_temperature_callback([this](float temperature)
                                                                 { return this->setHeatingTargetTemperature(temperature); });
       }
+
+      // Read Phase 1 values once at startup (these don't change)
+      delay(1000); // Give OpenTherm time to initialize
+
+      // Read max CH setpoint (Data-ID 57)
+      if (max_ch_setpoint_sensor_ != nullptr)
+      {
+        unsigned long response = ot_->sendRequest(ot_->buildRequest(OpenThermRequestType::READ, OpenThermMessageID::MaxTSet, 0));
+        if (ot_->isValidResponse(response))
+        {
+          float value = ot_->getFloat(response);
+          max_ch_setpoint_sensor_->publish_state(value);
+          ESP_LOGI(TAG, "Max CH setpoint: %.1f°C", value);
+        }
+      }
+
+      // Note: Min CH setpoint (Data-ID 58) is not in standard OpenTherm spec
+      // Most boilers don't support it, so we skip it
+
+      // Read max relative modulation (Data-ID 14)
+      if (max_modulation_sensor_ != nullptr)
+      {
+        unsigned long response = ot_->sendRequest(ot_->buildRequest(OpenThermRequestType::READ, OpenThermMessageID::MaxRelModLevelSetting, 0));
+        if (ot_->isValidResponse(response))
+        {
+          float value = ot_->getFloat(response);
+          max_modulation_sensor_->publish_state(value);
+          ESP_LOGI(TAG, "Max modulation: %.1f%%", value);
+        }
+      }
+
+      // Read OpenTherm versions (Data-ID 124, 125)
+      if (master_ot_version_sensor_ != nullptr)
+      {
+        unsigned long response = ot_->sendRequest(ot_->buildRequest(OpenThermRequestType::READ, OpenThermMessageID::OpenThermVersionMaster, 0));
+        if (ot_->isValidResponse(response))
+        {
+          float value = ot_->getFloat(response);
+          master_ot_version_sensor_->publish_state(value);
+          ESP_LOGI(TAG, "Master OT version: %.2f", value);
+        }
+      }
+
+      if (slave_ot_version_sensor_ != nullptr)
+      {
+        unsigned long response = ot_->sendRequest(ot_->buildRequest(OpenThermRequestType::READ, OpenThermMessageID::OpenThermVersionSlave, 0));
+        if (ot_->isValidResponse(response))
+        {
+          float value = ot_->getFloat(response);
+          slave_ot_version_sensor_->publish_state(value);
+          ESP_LOGI(TAG, "Slave OT version: %.2f", value);
+        }
+      }
     }
 
     void OpenthermComponent::loop()
@@ -110,6 +163,48 @@ namespace esphome
 
       if (heating_target_temperature_sensor_ != nullptr && !std::isnan(heating_target_temp))
         heating_target_temperature_sensor_->publish_state(heating_target_temp);
+
+      // Read OEM diagnostic codes (Data-ID 5 and 115) - only if fault or diagnostic active
+      if (is_fault || is_diagnostic)
+      {
+        // OEM fault code (Data-ID 5) - Application-specific fault flags
+        if (oem_fault_code_sensor_ != nullptr)
+        {
+          unsigned long response = ot_->sendRequest(ot_->buildRequest(OpenThermRequestType::READ, OpenThermMessageID::ASFflags, 0));
+          if (ot_->isValidResponse(response))
+          {
+            uint16_t fault_code = response & 0xFF; // Low byte contains OEM fault code
+            oem_fault_code_sensor_->publish_state(fault_code);
+            if (fault_code != 0)
+            {
+              ESP_LOGW(TAG, "OEM Fault Code: %d", fault_code);
+            }
+          }
+        }
+
+        // OEM diagnostic code (Data-ID 115)
+        if (oem_diagnostic_code_sensor_ != nullptr)
+        {
+          unsigned long response = ot_->sendRequest(ot_->buildRequest(OpenThermRequestType::READ, OpenThermMessageID::OEMDiagnosticCode, 0));
+          if (ot_->isValidResponse(response))
+          {
+            uint16_t diag_code = response & 0xFFFF; // Full 16-bit diagnostic code
+            oem_diagnostic_code_sensor_->publish_state(diag_code);
+            if (diag_code != 0)
+            {
+              ESP_LOGW(TAG, "OEM Diagnostic Code: %d", diag_code);
+            }
+          }
+        }
+      }
+      else
+      {
+        // No fault - publish 0
+        if (oem_fault_code_sensor_ != nullptr)
+          oem_fault_code_sensor_->publish_state(0);
+        if (oem_diagnostic_code_sensor_ != nullptr)
+          oem_diagnostic_code_sensor_->publish_state(0);
+      }
 
       // Update climate controllers
       if (hot_water_climate_ != nullptr)

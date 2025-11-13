@@ -110,16 +110,31 @@ opentherm:
   heating_target_temperature:
     name: "${friendly_name} Heating Target Temperature"
 
+  # Phase 1 - Boiler Limits & Diagnostics
+  max_ch_setpoint:
+    name: "${friendly_name} Max CH Setpoint"
+
+  max_modulation:
+    name: "${friendly_name} Max Modulation"
+
+  oem_fault_code:
+    name: "${friendly_name} OEM Fault Code"
+
+  oem_diagnostic_code:
+    name: "${friendly_name} OEM Diagnostic Code"
+
+  master_ot_version:
+    name: "${friendly_name} Master OT Version"
+
+  slave_ot_version:
+    name: "${friendly_name} Slave OT Version"
+
   # Climate entities
   hot_water_climate:
     name: "${friendly_name} Hot Water"
-    min_temperature: 40
-    max_temperature: 60
 
   heating_water_climate:
     name: "${friendly_name} Heating Water"
-    min_temperature: 20
-    max_temperature: 80
 
 # Add buttons
 button:

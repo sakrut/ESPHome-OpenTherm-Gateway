@@ -41,6 +41,14 @@ CONF_SLAVE_IN_PIN = "slave_in_pin"
 CONF_SLAVE_OUT_PIN = "slave_out_pin"
 CONF_OPENTHERM_ID = "opentherm_id"
 CONF_CLIMATE_TYPE = "climate_type"
+# Phase 1 features
+CONF_MAX_CH_SETPOINT = "max_ch_setpoint"
+CONF_MIN_CH_SETPOINT = "min_ch_setpoint"
+CONF_MAX_MODULATION = "max_modulation"
+CONF_OEM_FAULT_CODE = "oem_fault_code"
+CONF_OEM_DIAGNOSTIC_CODE = "oem_diagnostic_code"
+CONF_MASTER_OT_VERSION = "master_ot_version"
+CONF_SLAVE_OT_VERSION = "slave_ot_version"
 
 # Generate namespaces
 opentherm_ns = cg.esphome_ns.namespace("esphome::opentherm")
@@ -96,6 +104,36 @@ CONFIG_SCHEMA = cv.Schema({
         accuracy_decimals=1,
         device_class=DEVICE_CLASS_TEMPERATURE,
         state_class=STATE_CLASS_MEASUREMENT,
+    ),
+    # Phase 1 sensors - Boiler limits and diagnostics
+    cv.Optional(CONF_MAX_CH_SETPOINT): sensor.sensor_schema(
+        unit_of_measurement=UNIT_CELSIUS,
+        accuracy_decimals=1,
+        device_class=DEVICE_CLASS_TEMPERATURE,
+        state_class=STATE_CLASS_MEASUREMENT,
+    ),
+    cv.Optional(CONF_MIN_CH_SETPOINT): sensor.sensor_schema(
+        unit_of_measurement=UNIT_CELSIUS,
+        accuracy_decimals=1,
+        device_class=DEVICE_CLASS_TEMPERATURE,
+        state_class=STATE_CLASS_MEASUREMENT,
+    ),
+    cv.Optional(CONF_MAX_MODULATION): sensor.sensor_schema(
+        unit_of_measurement=UNIT_PERCENT,
+        accuracy_decimals=1,
+        state_class=STATE_CLASS_MEASUREMENT,
+    ),
+    cv.Optional(CONF_OEM_FAULT_CODE): sensor.sensor_schema(
+        accuracy_decimals=0,
+    ),
+    cv.Optional(CONF_OEM_DIAGNOSTIC_CODE): sensor.sensor_schema(
+        accuracy_decimals=0,
+    ),
+    cv.Optional(CONF_MASTER_OT_VERSION): sensor.sensor_schema(
+        accuracy_decimals=2,
+    ),
+    cv.Optional(CONF_SLAVE_OT_VERSION): sensor.sensor_schema(
+        accuracy_decimals=2,
     ),
     cv.Optional(CONF_FLAME): binary_sensor.binary_sensor_schema(
         device_class=DEVICE_CLASS_HEAT,
@@ -154,7 +192,36 @@ async def to_code(config):
     if CONF_HEATING_TARGET_TEMPERATURE in config:
         sens = await sensor.new_sensor(config[CONF_HEATING_TARGET_TEMPERATURE])
         cg.add(var.set_heating_target_temperature_sensor(sens))
-    
+
+    # Phase 1 sensors
+    if CONF_MAX_CH_SETPOINT in config:
+        sens = await sensor.new_sensor(config[CONF_MAX_CH_SETPOINT])
+        cg.add(var.set_max_ch_setpoint_sensor(sens))
+
+    if CONF_MIN_CH_SETPOINT in config:
+        sens = await sensor.new_sensor(config[CONF_MIN_CH_SETPOINT])
+        cg.add(var.set_min_ch_setpoint_sensor(sens))
+
+    if CONF_MAX_MODULATION in config:
+        sens = await sensor.new_sensor(config[CONF_MAX_MODULATION])
+        cg.add(var.set_max_modulation_sensor(sens))
+
+    if CONF_OEM_FAULT_CODE in config:
+        sens = await sensor.new_sensor(config[CONF_OEM_FAULT_CODE])
+        cg.add(var.set_oem_fault_code_sensor(sens))
+
+    if CONF_OEM_DIAGNOSTIC_CODE in config:
+        sens = await sensor.new_sensor(config[CONF_OEM_DIAGNOSTIC_CODE])
+        cg.add(var.set_oem_diagnostic_code_sensor(sens))
+
+    if CONF_MASTER_OT_VERSION in config:
+        sens = await sensor.new_sensor(config[CONF_MASTER_OT_VERSION])
+        cg.add(var.set_master_ot_version_sensor(sens))
+
+    if CONF_SLAVE_OT_VERSION in config:
+        sens = await sensor.new_sensor(config[CONF_SLAVE_OT_VERSION])
+        cg.add(var.set_slave_ot_version_sensor(sens))
+
     # Register binary sensors
     if CONF_FLAME in config:
         sens = await binary_sensor.new_binary_sensor(config[CONF_FLAME])

@@ -46,6 +46,15 @@ namespace esphome
       void set_modulation_sensor(sensor::Sensor *sensor) { modulation_sensor_ = sensor; }
       void set_heating_target_temperature_sensor(sensor::Sensor *sensor) { heating_target_temperature_sensor_ = sensor; }
 
+      // Phase 1 sensor setters
+      void set_max_ch_setpoint_sensor(sensor::Sensor *sensor) { max_ch_setpoint_sensor_ = sensor; }
+      void set_min_ch_setpoint_sensor(sensor::Sensor *sensor) { min_ch_setpoint_sensor_ = sensor; }
+      void set_max_modulation_sensor(sensor::Sensor *sensor) { max_modulation_sensor_ = sensor; }
+      void set_oem_fault_code_sensor(sensor::Sensor *sensor) { oem_fault_code_sensor_ = sensor; }
+      void set_oem_diagnostic_code_sensor(sensor::Sensor *sensor) { oem_diagnostic_code_sensor_ = sensor; }
+      void set_master_ot_version_sensor(sensor::Sensor *sensor) { master_ot_version_sensor_ = sensor; }
+      void set_slave_ot_version_sensor(sensor::Sensor *sensor) { slave_ot_version_sensor_ = sensor; }
+
       // Binary sensor setters
       void set_flame_sensor(binary_sensor::BinarySensor *sensor) { flame_ = sensor; }
       void set_ch_active_sensor(binary_sensor::BinarySensor *sensor) { ch_active_ = sensor; }
@@ -94,6 +103,15 @@ namespace esphome
       sensor::Sensor *pressure_sensor_{nullptr};
       sensor::Sensor *modulation_sensor_{nullptr};
       sensor::Sensor *heating_target_temperature_sensor_{nullptr};
+
+      // Phase 1 sensors
+      sensor::Sensor *max_ch_setpoint_sensor_{nullptr};
+      sensor::Sensor *min_ch_setpoint_sensor_{nullptr};
+      sensor::Sensor *max_modulation_sensor_{nullptr};
+      sensor::Sensor *oem_fault_code_sensor_{nullptr};
+      sensor::Sensor *oem_diagnostic_code_sensor_{nullptr};
+      sensor::Sensor *master_ot_version_sensor_{nullptr};
+      sensor::Sensor *slave_ot_version_sensor_{nullptr};
 
       // Binary Sensors
       binary_sensor::BinarySensor *flame_{nullptr};
