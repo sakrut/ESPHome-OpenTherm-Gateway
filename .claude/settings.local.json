@@ -5,7 +5,9 @@
       "Bash(docker run:*)",
       "Bash(python -m pip:*)",
       "Bash(python:*)",
-      "Bash(example_opentherm_temp.yaml)"
+      "Bash(example_opentherm_temp.yaml)",
+      "Bash(.gitignore)",
+      "Bash(cat:*)"
     ],
     "deny": [],
     "ask": []
