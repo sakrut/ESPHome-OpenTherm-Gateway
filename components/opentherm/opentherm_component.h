@@ -109,6 +109,11 @@ namespace esphome
       // Last status response
       static unsigned long last_status_response_;
 
+      // Last intercepted response (set by processRequest, processed in loop)
+      static unsigned long last_intercepted_response_;
+      static OpenThermMessageID last_intercepted_id_;
+      static bool has_new_intercepted_response_;
+
       // Cached sensor values with timestamps (value updated by processRequest or explicit poll)
       struct CachedValue {
         float value{NAN};
@@ -125,9 +130,21 @@ namespace esphome
       CachedValue cached_dhw_target_;
 
       const unsigned long CACHE_TIMEOUT_{60000};  // 1 minute in ms
+      const unsigned long MIN_FETCH_INTERVAL_{5000};  // Minimum 5s between fetch requests for same sensor
 
       // Helper to get cached value or fetch if stale
       float getCachedOrFetch(CachedValue &cache, OpenThermMessageID msg_id);
+
+      // Process intercepted response (called from loop, not interrupt)
+      void processCachedResponse(unsigned long response, OpenThermMessageID id);
+
+      // Helper for temperature setpoint verification with retry logic
+      bool setTemperatureWithVerification(
+          float temperature,
+          OpenThermMessageID write_msg_id,
+          OpenThermMessageID read_msg_id,
+          OpenthermClimate *climate,
+          const char *name);
 
       // Interrupt handlers
       static void IRAM_ATTR handleInterrupt();

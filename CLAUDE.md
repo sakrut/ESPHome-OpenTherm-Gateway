@@ -264,11 +264,13 @@ All interrupt handlers must be marked `IRAM_ATTR` and access only static members
 The component implements intelligent caching to minimize OpenTherm bus traffic:
 
 **How it works**:
-1. All thermostat→boiler communication flows through `processRequest()`
-2. When a response contains sensor data (temperature, pressure, modulation, etc.), it's cached with a timestamp
-3. When Home Assistant requests sensor updates (every 30s), the component checks cache first:
+1. All thermostat→boiler communication flows through `processRequest()` (interrupt context)
+2. Responses are stored atomically and processed in `loop()` (normal context) to avoid interrupt safety issues
+3. When a response contains sensor data (temperature, pressure, modulation, etc.), it's cached with a timestamp
+4. When Home Assistant requests sensor updates (every 30s), the component checks cache first:
    - **Cache fresh** (< 1 minute old): Use cached value, **zero bus traffic**
-   - **Cache stale** (> 1 minute old): Request from boiler, update cache
+   - **Cache stale but recent** (> 1 min, < 5s since last fetch): Use stale value, **prevent spam**
+   - **Cache very stale** (> 5s since last fetch): Request from boiler, update cache
 
 **Cached Data IDs**:
 - `Toutside` (27) - External temperature
@@ -280,14 +282,22 @@ The component implements intelligent caching to minimize OpenTherm bus traffic:
 - `Tdhw` (26) - DHW temperature
 - `TdhwSet` (56) - DHW setpoint
 
+**Safety Features**:
+- **Interrupt safety**: Cache updates happen in `loop()`, not interrupt context
+- **Rate limiting**: Minimum 5 seconds between fetch requests for the same sensor
+- **Millis overflow safe**: Uses unsigned arithmetic that handles 49-day overflow correctly
+- **Failure handling**: Failed fetches don't spam the bus (timestamp updated even on failure)
+
 **Benefits**:
 - Reduces active polling requests by ~80-90% if thermostat regularly queries these values
 - Gateway remains transparent - doesn't add delay to thermostat↔boiler communication
 - Fallback polling ensures values are available even if thermostat doesn't request them
+- Robust against edge cases (overflow, failures, spam scenarios)
 
-**Configuration** (in [opentherm_component.h](components/opentherm/opentherm_component.h#L127)):
+**Configuration** (in [opentherm_component.h](components/opentherm/opentherm_component.h#L132-L133)):
 ```cpp
-const unsigned long CACHE_TIMEOUT_{60000};  // 1 minute in milliseconds
+const unsigned long CACHE_TIMEOUT_{60000};        // 1 minute - cache freshness
+const unsigned long MIN_FETCH_INTERVAL_{5000};    // 5 seconds - rate limit
 ```
 
 ## Debugging and Common Issues
@@ -316,21 +326,31 @@ logger:
 
 ### Temperature Setpoint Verification
 
-When setting DHW or CH temperatures via climate entities, the component implements immediate verification:
+When setting DHW or CH temperatures via climate entities, the component implements robust verification with retry logic:
 
+**Process**:
 1. **User sets temperature** in Home Assistant
 2. **Component sends WRITE command** to boiler with the requested temperature
-3. **Immediate verification** - Component reads back the actual setpoint from the boiler
-4. **UI update** - Climate entity is updated with the verified value (not the requested value)
-5. **Warning logged** if boiler clamped the value due to min/max limits
+3. **100ms delay** - Allows boiler to process the write command
+4. **Verification with retry** - Component reads back the actual setpoint from the boiler
+   - Up to 3 retry attempts with exponential backoff (50ms, 100ms, 200ms)
+   - Handles cases where boiler is slow to update internal state
+5. **UI update** - Climate entity is updated with the verified value (not the requested value)
+6. **Warning logged** if boiler clamped the value due to min/max limits
 
-This provides instant feedback if the boiler rejects or modifies the setpoint (e.g., user sets 20°C but boiler minimum is 35°C).
+**Reliability improvements**:
+- Retry logic handles transient failures and timing issues
+- Exponential backoff prevents bus spam
+- Write success even if verification fails (assumes write worked, logs warning)
+- DRY implementation via `setTemperatureWithVerification()` helper
+
+This provides instant, reliable feedback if the boiler rejects or modifies the setpoint (e.g., user sets 20°C but boiler minimum is 35°C).
 
 Example log output:
 ```
 [I][opentherm.component] Setting DHW temperature to 20.0°C
 [I][opentherm.component] DHW setpoint verified: 35.0°C (requested: 20.0°C)
-[W][opentherm.component] DHW setpoint was adjusted by boiler (min/max limits?)
+[W][opentherm.component] DHW setpoint was adjusted by boiler from 20.0°C to 35.0°C (min/max limits?)
 ```
 
-Implementation in [opentherm_component.cpp](components/opentherm/opentherm_component.cpp#L175-L204) `setHotWaterTemperature()` and [opentherm_component.cpp](components/opentherm/opentherm_component.cpp#L206-L234) `setHeatingTargetTemperature()`.
+Implementation in [opentherm_component.cpp](components/opentherm/opentherm_component.cpp#L177-L265) `setTemperatureWithVerification()` helper.

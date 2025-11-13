@@ -11,6 +11,9 @@ namespace esphome
     // Initialize static members
     OpenthermComponent *OpenthermComponent::instance_ = nullptr;
     unsigned long OpenthermComponent::last_status_response_ = 0;
+    unsigned long OpenthermComponent::last_intercepted_response_ = 0;
+    OpenThermMessageID OpenthermComponent::last_intercepted_id_ = static_cast<OpenThermMessageID>(0);
+    bool OpenthermComponent::has_new_intercepted_response_ = false;
 
     OpenthermComponent::OpenthermComponent() : PollingComponent(30000)  // 30s polling - cache reduces actual requests
     {
@@ -46,6 +49,13 @@ namespace esphome
     void OpenthermComponent::loop()
     {
       slave_ot_->process();
+
+      // Process intercepted responses (moved from interrupt context)
+      if (has_new_intercepted_response_)
+      {
+        processCachedResponse(last_intercepted_response_, last_intercepted_id_);
+        has_new_intercepted_response_ = false;
+      }
     }
 
     void OpenthermComponent::update()
@@ -164,65 +174,94 @@ namespace esphome
       return ot_->isValidResponse(response) ? ot_->getFloat(response) : NAN;
     }
 
-    bool OpenthermComponent::setHotWaterTemperature(float temperature)
+    bool OpenthermComponent::setTemperatureWithVerification(
+        float temperature,
+        OpenThermMessageID write_msg_id,
+        OpenThermMessageID read_msg_id,
+        OpenthermClimate *climate,
+        const char *name)
     {
-      ESP_LOGI(TAG, "Setting DHW temperature to %.1f°C", temperature);
+      ESP_LOGI(TAG, "Setting %s temperature to %.1f°C", name, temperature);
+
       unsigned int data = ot_->temperatureToData(temperature);
-      unsigned long request = ot_->buildRequest(OpenThermRequestType::WRITE, OpenThermMessageID::TdhwSet, data);
+      unsigned long request = ot_->buildRequest(OpenThermRequestType::WRITE, write_msg_id, data);
       unsigned long response = ot_->sendRequest(request);
 
-      if (ot_->isValidResponse(response)) {
-        // Verify the setpoint was accepted by reading it back
-        float actual_setpoint = getHotWaterTargetTemperature();
-        if (!std::isnan(actual_setpoint)) {
-          ESP_LOGI(TAG, "DHW setpoint verified: %.1f°C (requested: %.1f°C)", actual_setpoint, temperature);
-
-          // Update climate entity immediately with verified value
-          if (hot_water_climate_ != nullptr) {
-            hot_water_climate_->target_temperature = actual_setpoint;
-            hot_water_climate_->publish_state();
-          }
-
-          // Check if setpoint was clamped by boiler (e.g., min 35°C)
-          if (std::abs(actual_setpoint - temperature) > 1.0f) {
-            ESP_LOGW(TAG, "DHW setpoint was adjusted by boiler (min/max limits?)");
-          }
-        }
-        return true;
+      if (!ot_->isValidResponse(response))
+      {
+        ESP_LOGE(TAG, "Failed to set %s temperature - invalid response", name);
+        return false;
       }
 
-      ESP_LOGE(TAG, "Failed to set DHW temperature");
-      return false;
+      // Small delay to allow boiler to process the write command
+      delay(100);
+
+      // Verify the setpoint was accepted by reading it back (with retry)
+      const int max_retries = 3;
+      for (int retry = 0; retry < max_retries; retry++)
+      {
+        unsigned long read_response = ot_->sendRequest(
+            ot_->buildRequest(OpenThermRequestType::READ, read_msg_id, 0));
+
+        if (ot_->isValidResponse(read_response))
+        {
+          float actual_setpoint = ot_->getFloat(read_response);
+
+          if (!std::isnan(actual_setpoint))
+          {
+            ESP_LOGI(TAG, "%s setpoint verified: %.1f°C (requested: %.1f°C)",
+                     name, actual_setpoint, temperature);
+
+            // Update climate entity immediately with verified value
+            if (climate != nullptr)
+            {
+              climate->target_temperature = actual_setpoint;
+              climate->publish_state();
+            }
+
+            // Check if setpoint was clamped by boiler (e.g., min/max limits)
+            if (std::abs(actual_setpoint - temperature) > 1.0f)
+            {
+              ESP_LOGW(TAG, "%s setpoint was adjusted by boiler from %.1f°C to %.1f°C (min/max limits?)",
+                       name, temperature, actual_setpoint);
+            }
+
+            return true;
+          }
+        }
+
+        // Retry with exponential backoff
+        if (retry < max_retries - 1)
+        {
+          unsigned long backoff = 50 * (1 << retry); // 50ms, 100ms, 200ms
+          ESP_LOGW(TAG, "Failed to verify %s setpoint, retry %d/%d after %lu ms",
+                   name, retry + 1, max_retries, backoff);
+          delay(backoff);
+        }
+      }
+
+      ESP_LOGW(TAG, "%s setpoint write succeeded but verification failed after %d retries", name, max_retries);
+      return true; // Write succeeded even if verification failed
+    }
+
+    bool OpenthermComponent::setHotWaterTemperature(float temperature)
+    {
+      return setTemperatureWithVerification(
+          temperature,
+          OpenThermMessageID::TdhwSet,
+          OpenThermMessageID::TdhwSet,
+          hot_water_climate_,
+          "DHW");
     }
 
     bool OpenthermComponent::setHeatingTargetTemperature(float temperature)
     {
-      ESP_LOGI(TAG, "Setting CH temperature to %.1f°C", temperature);
-      unsigned int data = ot_->temperatureToData(temperature);
-      unsigned long request = ot_->buildRequest(OpenThermRequestType::WRITE, OpenThermMessageID::TSet, data);
-      unsigned long response = ot_->sendRequest(request);
-
-      if (ot_->isValidResponse(response)) {
-        // Verify the setpoint was accepted
-        float actual_setpoint = getHeatingTargetTemperature();
-        if (!std::isnan(actual_setpoint)) {
-          ESP_LOGI(TAG, "CH setpoint verified: %.1f°C (requested: %.1f°C)", actual_setpoint, temperature);
-
-          // Update climate entity immediately
-          if (heating_water_climate_ != nullptr) {
-            heating_water_climate_->target_temperature = actual_setpoint;
-            heating_water_climate_->publish_state();
-          }
-
-          if (std::abs(actual_setpoint - temperature) > 1.0f) {
-            ESP_LOGW(TAG, "CH setpoint was adjusted by boiler (min/max limits?)");
-          }
-        }
-        return true;
-      }
-
-      ESP_LOGE(TAG, "Failed to set CH temperature");
-      return false;
+      return setTemperatureWithVerification(
+          temperature,
+          OpenThermMessageID::TSet,
+          OpenThermMessageID::TSet,
+          heating_water_climate_,
+          "CH");
     }
 
     float OpenthermComponent::getModulation()
@@ -244,73 +283,85 @@ namespace esphome
 
         OpenThermMessageID id = instance_->ot_->getDataID(request);
 
-        // Update status response
+        // Update status response (critical for binary sensors)
         if (id == OpenThermMessageID::Status)
         {
           last_status_response_ = response;
-          ESP_LOGD(TAG, "Updated status response: %lu", last_status_response_);
         }
 
-        // Cache values from intercepted requests (only if response is valid)
+        // Store response for processing in loop() (outside interrupt context)
         if (instance_->ot_->isValidResponse(response))
         {
-          unsigned long now = millis();
-
-          switch (id)
-          {
-            case OpenThermMessageID::Toutside:
-              instance_->cached_external_temp_.value = instance_->ot_->getFloat(response);
-              instance_->cached_external_temp_.last_update = now;
-              ESP_LOGV(TAG, "Cached external temp: %.1f°C", instance_->cached_external_temp_.value);
-              break;
-
-            case OpenThermMessageID::Tret:
-              instance_->cached_return_temp_.value = instance_->ot_->getFloat(response);
-              instance_->cached_return_temp_.last_update = now;
-              ESP_LOGV(TAG, "Cached return temp: %.1f°C", instance_->cached_return_temp_.value);
-              break;
-
-            case OpenThermMessageID::Tboiler:
-              instance_->cached_boiler_temp_.value = instance_->ot_->getFloat(response);
-              instance_->cached_boiler_temp_.last_update = now;
-              ESP_LOGV(TAG, "Cached boiler temp: %.1f°C", instance_->cached_boiler_temp_.value);
-              break;
-
-            case OpenThermMessageID::CHPressure:
-              instance_->cached_pressure_.value = instance_->ot_->getFloat(response);
-              instance_->cached_pressure_.last_update = now;
-              ESP_LOGV(TAG, "Cached pressure: %.1f bar", instance_->cached_pressure_.value);
-              break;
-
-            case OpenThermMessageID::RelModLevel:
-              instance_->cached_modulation_.value = instance_->ot_->getFloat(response);
-              instance_->cached_modulation_.last_update = now;
-              ESP_LOGV(TAG, "Cached modulation: %.1f%%", instance_->cached_modulation_.value);
-              break;
-
-            case OpenThermMessageID::TSet:
-              instance_->cached_heating_target_.value = instance_->ot_->getFloat(response);
-              instance_->cached_heating_target_.last_update = now;
-              ESP_LOGV(TAG, "Cached heating target: %.1f°C", instance_->cached_heating_target_.value);
-              break;
-
-            case OpenThermMessageID::Tdhw:
-              instance_->cached_dhw_temp_.value = instance_->ot_->getFloat(response);
-              instance_->cached_dhw_temp_.last_update = now;
-              ESP_LOGV(TAG, "Cached DHW temp: %.1f°C", instance_->cached_dhw_temp_.value);
-              break;
-
-            case OpenThermMessageID::TdhwSet:
-              instance_->cached_dhw_target_.value = instance_->ot_->getFloat(response);
-              instance_->cached_dhw_target_.last_update = now;
-              ESP_LOGV(TAG, "Cached DHW target: %.1f°C", instance_->cached_dhw_target_.value);
-              break;
-
-            default:
-              // Other message IDs not cached
-              break;
-          }
+          last_intercepted_response_ = response;
+          last_intercepted_id_ = id;
+          has_new_intercepted_response_ = true;
         }
+      }
+    }
+
+    void OpenthermComponent::processCachedResponse(unsigned long response, OpenThermMessageID id)
+    {
+      // This runs in loop(), not interrupt context - safe to do complex operations
+      unsigned long now = millis();
+
+      switch (id)
+      {
+        case OpenThermMessageID::Toutside:
+          cached_external_temp_.value = ot_->getFloat(response);
+          cached_external_temp_.last_update = now;
+          ESP_LOGV(TAG, "Cached external temp: %.1f°C", cached_external_temp_.value);
+          break;
+
+        case OpenThermMessageID::Tret:
+          cached_return_temp_.value = ot_->getFloat(response);
+          cached_return_temp_.last_update = now;
+          ESP_LOGV(TAG, "Cached return temp: %.1f°C", cached_return_temp_.value);
+          break;
+
+        case OpenThermMessageID::Tboiler:
+          cached_boiler_temp_.value = ot_->getFloat(response);
+          cached_boiler_temp_.last_update = now;
+          ESP_LOGV(TAG, "Cached boiler temp: %.1f°C", cached_boiler_temp_.value);
+          break;
+
+        case OpenThermMessageID::CHPressure:
+          cached_pressure_.value = ot_->getFloat(response);
+          cached_pressure_.last_update = now;
+          ESP_LOGV(TAG, "Cached pressure: %.1f bar", cached_pressure_.value);
+          break;
+
+        case OpenThermMessageID::RelModLevel:
+          cached_modulation_.value = ot_->getFloat(response);
+          cached_modulation_.last_update = now;
+          ESP_LOGV(TAG, "Cached modulation: %.1f%%", cached_modulation_.value);
+          break;
+
+        case OpenThermMessageID::TSet:
+          cached_heating_target_.value = ot_->getFloat(response);
+          cached_heating_target_.last_update = now;
+          ESP_LOGV(TAG, "Cached heating target: %.1f°C", cached_heating_target_.value);
+          break;
+
+        case OpenThermMessageID::Tdhw:
+          cached_dhw_temp_.value = ot_->getFloat(response);
+          cached_dhw_temp_.last_update = now;
+          ESP_LOGV(TAG, "Cached DHW temp: %.1f°C", cached_dhw_temp_.value);
+          break;
+
+        case OpenThermMessageID::TdhwSet:
+          cached_dhw_target_.value = ot_->getFloat(response);
+          cached_dhw_target_.last_update = now;
+          ESP_LOGV(TAG, "Cached DHW target: %.1f°C", cached_dhw_target_.value);
+          break;
+
+        case OpenThermMessageID::Status:
+          // Already handled in processRequest for immediate binary sensor updates
+          ESP_LOGD(TAG, "Updated status response: %lu", response);
+          break;
+
+        default:
+          // Other message IDs not cached
+          break;
       }
     }
 
@@ -318,26 +369,45 @@ namespace esphome
     {
       unsigned long now = millis();
 
+      // Unsigned arithmetic handles millis() overflow correctly (wraps at 2^32)
+      unsigned long cache_age = now - cache.last_update;
+
       // Check if cache is fresh (updated within last minute)
-      if (!std::isnan(cache.value) && (now - cache.last_update) < CACHE_TIMEOUT_)
+      if (!std::isnan(cache.value) && cache_age < CACHE_TIMEOUT_)
       {
         ESP_LOGV(TAG, "Using cached value for msg_id %d: %.2f (age: %lu ms)",
-                 static_cast<int>(msg_id), cache.value, now - cache.last_update);
+                 static_cast<int>(msg_id), cache.value, cache_age);
         return cache.value;
       }
 
-      // Cache is stale or empty - fetch from boiler
-      ESP_LOGV(TAG, "Cache stale/empty for msg_id %d, fetching from boiler", static_cast<int>(msg_id));
+      // Rate limiting: Don't fetch if we just fetched recently (prevents spam if cache keeps expiring)
+      if (cache_age < MIN_FETCH_INTERVAL_)
+      {
+        ESP_LOGV(TAG, "Rate limited fetch for msg_id %d (last fetch %lu ms ago, min interval %lu ms)",
+                 static_cast<int>(msg_id), cache_age, MIN_FETCH_INTERVAL_);
+        return cache.value; // Return stale value rather than spam the bus
+      }
+
+      // Cache is stale - fetch from boiler
+      ESP_LOGV(TAG, "Cache stale for msg_id %d (age: %lu ms), fetching from boiler",
+               static_cast<int>(msg_id), cache_age);
       unsigned long response = ot_->sendRequest(ot_->buildRequest(OpenThermRequestType::READ, msg_id, 0));
 
       if (ot_->isValidResponse(response))
       {
         cache.value = ot_->getFloat(response);
         cache.last_update = now;
+        ESP_LOGV(TAG, "Fetched value for msg_id %d: %.2f", static_cast<int>(msg_id), cache.value);
         return cache.value;
       }
+      else
+      {
+        ESP_LOGW(TAG, "Failed to fetch value for msg_id %d, using stale cache if available", static_cast<int>(msg_id));
+        // Update timestamp even on failure to prevent continuous retry spam
+        cache.last_update = now;
+      }
 
-      return NAN;
+      return cache.value; // Return stale value or NAN
     }
 
     void IRAM_ATTR OpenthermComponent::handleInterrupt()
