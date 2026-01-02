@@ -2,6 +2,65 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Development Principles
+
+**KISS** - Keep It Simple, Stupid
+- Prefer simple solutions over complex ones
+- One function = one responsibility
+- Avoid premature optimization
+
+**YAGNI** - You Aren't Gonna Need It
+- Don't add features until needed
+- Remove dead code immediately
+- No "future-proofing" abstractions
+
+**DRY** - Don't Repeat Yourself
+- Extract common patterns into helpers
+- Use const references for repeated values
+- Single source of truth for configuration
+
+**SOLID**
+- **S**ingle Responsibility: Each class/function has one job
+- **O**pen/Closed: Extend via composition, not modification
+- **L**iskov Substitution: Subclasses work as base class
+- **I**nterface Segregation: Small, focused interfaces
+- **D**ependency Inversion: Depend on abstractions (callbacks)
+
+**Code & Documentation**
+- English only (code, comments, docs)
+- Documentation: concise, actionable, no fluff
+- Code comments explain "why", not "what"
+
+## Project Structure
+
+```
+ESPHome-OpenTherm-Gateway/
+├── components/opentherm/          # Main component
+│   ├── __init__.py                # Component registration (Python)
+│   ├── opentherm_component.{h,cpp} # Core gateway logic (C++)
+│   ├── opentherm_climate.{h,cpp}  # Climate entity implementation
+│   ├── sensor.py                  # Platform sensor (alternative pattern)
+│   ├── binary_sensor.py           # Platform binary_sensor
+│   └── climate.py                 # Platform climate
+├── debug/                         # Monitoring stack (Loki + Promtail)
+│   ├── docker-compose.yml         # Container orchestration
+│   ├── promtail/promtail-config.yml # Log parser
+│   ├── loki/loki-config.yml       # Log storage config
+│   └── README.md                  # Setup guide
+├── doc/                           # Documentation
+│   └── Opentherm Protocol v2-2.pdf # Official OpenTherm spec
+├── example_opentherm.yaml         # Full example config
+├── build.yaml                     # Minimal build config (CI)
+├── CLAUDE.md                      # This file (dev guide)
+└── Readme.md                      # User documentation
+```
+
+**Key Files for Development:**
+- `opentherm_component.cpp` - 90% of logic lives here
+- `opentherm_component.h` - Public API and member variables
+- `__init__.py` - Python/YAML config parsing
+- `example_opentherm.yaml` - Reference implementation
+
 ## Project Overview
 
 ESPHome OpenTherm Gateway - An ESPHome external component that acts as a man-in-the-middle gateway between an OpenTherm boiler controller (thermostat) and the boiler itself. It enables monitoring and control of OpenTherm heating systems through Home Assistant integration.
