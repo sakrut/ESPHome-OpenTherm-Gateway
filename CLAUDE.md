@@ -372,15 +372,148 @@ const unsigned long MIN_FETCH_INTERVAL_{5000};    // 5 seconds - rate limit
 
 ## Debugging and Common Issues
 
+### Structured Logging System
+
+The component implements comprehensive structured logging designed for debugging, metrics collection, and long-term analysis. All logs use a consistent key=value format for easy parsing.
+
+#### Logging Levels
+
+**VERBOSE** - All OpenTherm protocol packets:
+- Intercepted communication (Thermostat ↔ Boiler)
+- Gateway-initiated requests (Gateway ↔ Boiler)
+- Hex dumps with parsed values
+- Cache operations
+
+**DEBUG** - All Home Assistant actions:
+- Sensor/binary sensor publishing
+- Climate entity updates
+- Temperature setpoint commands
+- Command verification results
+
+**INFO** - Important events:
+- Component startup
+- Configuration values
+- Successfully verified setpoints
+
+**WARN/ERROR** - Problems:
+- Invalid responses
+- Failed verifications
+- Adjusted setpoints (min/max limits)
+
+#### Log Format Examples
+
+**VERBOSE - OpenTherm Packets:**
+```
+[OT_PKT] dir=MasterToSlave type=intercept msg_id=1 msg_type=READ req_raw=0x80010000
+[OT_PKT] dir=SlaveToMaster type=intercept msg_id=1 msg_type=READ_ACK resp_raw=0xC0010101 resp_data=0x0101 hb=0x01 lb=0x01 parsed=1.00 valid=1
+
+[OT_PKT] dir=GatewayToBoiler type=fetch msg_id=25 msg_type=READ req_raw=0x90190000
+[OT_PKT] dir=BoilerToGateway type=fetch msg_id=25 msg_type=READ_ACK resp_raw=0xD0191D00 resp_data=0x1D00 hb=0x1D lb=0x00 parsed=29.00 valid=1
+```
+
+**DEBUG - Home Assistant Actions:**
+```
+[HA_CMD] action=set_temperature entity=DHW target=50.0 unit=°C
+[HA_CMD] action=ot_write msg_id=56 req_data=0x3200 req_raw=0x10383200
+[HA_CMD] action=ot_write_resp msg_id=56 resp_raw=0xD0383200 resp_data=0x3200 valid=1
+[HA_CMD] action=verify_setpoint msg_id=56 actual=50.0 requested=50.0 match=1
+
+[HA_CMD] action=publish_sensor name=heating_target_temperature value=45.5 unit=°C
+[HA_CMD] action=publish_climate entity=central_heating current_temp=65.2 target_temp=45.5 mode=heating
+[HA_CMD] action=publish_binary_sensor name=flame state=1
+```
+
+**Cache Operations:**
+```
+[OT_CACHE] msg_id=27 first_fetch=1
+[OT_CACHE] msg_id=27 cache_hit=1 value=15.50 age_ms=12340
+[OT_CACHE] msg_id=27 cache_stale=1 age_ms=65000 fetching=1
+[OT_CACHE] msg_id=27 rate_limited=1 age_ms=3000 min_interval_ms=5000 returning_stale=1
+```
+
 ### Enable Debug Logging
 Add to your YAML configuration:
 ```yaml
 logger:
   level: DEBUG
   logs:
-    opentherm.component: DEBUG
-    opentherm.climate: DEBUG
+    # VERBOSE = all packets, DEBUG = HA actions only
+    opentherm.component: VERBOSE  # or DEBUG
 ```
+
+### Remote Logging for Long-Term Debugging
+
+For diagnosing intermittent issues (e.g., heating curve "jumping" to -30°C), enable remote logging to collect data over days/weeks.
+
+#### Option 1: Serial Logging to File
+
+If you have physical access to ESP serial port:
+```bash
+# Install esphome-flasher or use screen/minicom
+esphome logs opentherm_gateway.yaml > opentherm_debug.log 2>&1
+```
+
+#### Option 2: MQTT Logging (Recommended for Remote Debugging)
+
+```yaml
+mqtt:
+  broker: 192.168.1.100
+  topic_prefix: esphome/opentherm_gateway
+  log_topic: opentherm_gateway/logs
+  log_topic_level: VERBOSE
+
+logger:
+  level: VERBOSE
+  logs:
+    opentherm.component: VERBOSE
+```
+
+Then collect logs with:
+```bash
+# Subscribe and save to file
+mosquitto_sub -h 192.168.1.100 -t 'opentherm_gateway/logs' >> opentherm_debug.log
+
+# Or pipe to Grafana Loki / ELK / your metrics system
+```
+
+#### Parsing Logs for Metrics and Analysis
+
+The structured format allows easy extraction of metrics:
+
+```bash
+# Extract all TSet (heating target) values with timestamps
+grep '\[OT_PKT\].*msg_id=1.*parsed=' opentherm_debug.log | \
+  awk '{print $1, $2, $NF}' > tset_history.txt
+
+# Find all invalid/anomalous temperature readings
+grep '\[OT_PKT\].*parsed=-[0-9]' opentherm_debug.log  # Negative temps
+grep '\[OT_PKT\].*parsed=[0-9]{3,}' opentherm_debug.log  # > 99°C
+
+# Extract cache hit ratio for msg_id 27 (external temp)
+grep '\[OT_CACHE\] msg_id=27' opentherm_debug.log | \
+  awk '{if ($3 ~ /cache_hit/) hits++; else misses++} END {print "Hit ratio:", hits/(hits+misses)}'
+
+# Trace a specific temperature setpoint command from HA
+grep '\[HA_CMD\].*action=set_temperature.*entity=DHW' -A 10 opentherm_debug.log
+
+# Find all heating curve corrections (msg_id 1 = TSet)
+grep '\[OT_PKT\].*dir=MasterToSlave.*msg_id=1' opentherm_debug.log | \
+  grep -oP 'parsed=[^ ]+' | cut -d= -f2 > heating_curve_values.txt
+```
+
+**Example: Debugging Heating Curve Jump to -30°C**
+
+1. Enable VERBOSE logging with MQTT
+2. Collect logs for 24-48 hours
+3. Search for anomalous TSet values:
+   ```bash
+   grep '\[OT_PKT\].*msg_id=1.*parsed=-[0-9]' opentherm_debug.log
+   ```
+4. Examine raw hex values around the anomaly:
+   ```bash
+   grep -B 5 -A 5 'parsed=-3[0-9]' opentherm_debug.log
+   ```
+5. Check if it's a parsing issue (getFloat) or actual thermostat data
 
 ### Key Debugging Points
 1. **No sensor readings**: Check that `last_status_response_` is being updated in `processRequest()`
