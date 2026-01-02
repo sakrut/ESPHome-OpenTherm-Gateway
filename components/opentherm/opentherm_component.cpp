@@ -161,7 +161,7 @@ namespace esphome
       if (modulation_sensor_ != nullptr && !std::isnan(modulation))
         modulation_sensor_->publish_state(modulation);
 
-      if (heating_target_temperature_sensor_ != nullptr && !std::isnan(heating_target_temp))
+      if (heating_target_temperature_sensor_ != nullptr && !std::isnan(heating_target_temp) && heating_target_temp > 0)
         heating_target_temperature_sensor_->publish_state(heating_target_temp);
 
       // Read OEM diagnostic codes (Data-ID 5 and 115) - only if fault or diagnostic active
