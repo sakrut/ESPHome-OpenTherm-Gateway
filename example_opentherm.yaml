@@ -22,12 +22,15 @@ logger:
     # Component logging levels:
     # - VERBOSE: All OpenTherm packets (Master<->Slave intercepts + Gateway<->Boiler fetches)
     #            Includes hex dumps, parsed values, cache operations
+    #            ⚠️ WARNING: Generates A LOT of logs! Use only for debugging specific issues
     # - DEBUG: All Home Assistant actions (sensor publishing, climate updates, temperature commands)
+    #          Recommended for general use
     # - INFO: Important events (startup, configuration, verified setpoints)
-    # - WARN/ERROR: Problems and failures
-    opentherm.component: VERBOSE  # Change to DEBUG for less verbose output
+    # - WARN/ERROR: Problems and failures only
+    opentherm.component: DEBUG  # Change to VERBOSE only when debugging OpenTherm protocol issues
 
   # Optional: Remote syslog logging (for long-term debugging and metrics)
+  # See debug/ folder for Loki + Promtail setup
   # Uncomment and configure to send logs to a remote syslog server
   # logs:
   #   level: VERBOSE
