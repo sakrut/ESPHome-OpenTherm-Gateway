@@ -8,7 +8,12 @@ static const char *const TAG = "opentherm.climate";
 
 void OpenthermClimate::setup() {
   this->mode = climate::CLIMATE_MODE_HEAT;
-  this->target_temperature = default_target_temperature_;
+  // Don't set target_temperature to 0 - leave it as NAN until initialized
+  // from boiler or set by user
+  if (default_target_temperature_ > 0) {
+    this->target_temperature = default_target_temperature_;
+    target_temperature_initialized_ = true;
+  }
 }
 
 void OpenthermClimate::dump_config() {
@@ -41,11 +46,12 @@ void OpenthermClimate::control(const climate::ClimateCall &call) {
     float temp = *call.get_target_temperature();
     ESP_LOGD(TAG, "Setting target temperature to %.1f", temp);
     this->target_temperature = temp;
-    
+    target_temperature_initialized_ = true;  // Mark as user-set
+
     if (target_temperature_setter_) {
       target_temperature_setter_(temp);
     }
-    
+
     this->publish_state();
   }
 }

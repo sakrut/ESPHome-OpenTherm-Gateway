@@ -219,7 +219,10 @@ namespace esphome
       {
         heating_water_climate_->current_temperature = boiler_temperature;
         heating_water_climate_->action = is_central_heating_active ? climate::CLIMATE_ACTION_HEATING : climate::CLIMATE_ACTION_OFF;
-        heating_water_climate_->target_temperature = getHeatingTargetTemperature();
+        // Initialize target temperature from boiler on first update only
+        // After that, keep the user's set value and don't overwrite it
+        // The heating_target_temperature_sensor will show what the boiler is actually using
+        heating_water_climate_->initialize_target_temperature(heating_target_temp);
         heating_water_climate_->publish_state();
       }
     }

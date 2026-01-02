@@ -24,10 +24,19 @@ namespace esphome
       void set_climate_type(ClimateType type) { climate_type_ = type; }
       ClimateType get_climate_type() const { return climate_type_; }
 
+      // Initialize target temperature from boiler (called once on first update)
+      void initialize_target_temperature(float temperature) {
+        if (!target_temperature_initialized_ && !std::isnan(temperature) && temperature > 0) {
+          this->target_temperature = temperature;
+          target_temperature_initialized_ = true;
+        }
+      }
+
     protected:
       float default_target_temperature_{0};
       std::function<bool(float)> target_temperature_setter_;
       ClimateType climate_type_;
+      bool target_temperature_initialized_{false};
     };
 
   } // namespace opentherm
