@@ -9,5 +9,6 @@
 **/platformio.ini
 /secrets.yaml
 .vscode
+.claude/
 
 **/__pycache__/
