@@ -1,25 +1,15 @@
 ---
 name: Feature Request
-about: Suggest a new feature or enhancement
+about: Suggest a feature
 title: '[FEATURE] '
 labels: enhancement
-assignees: ''
 ---
 
-## Feature Description
-Clear description of the proposed feature.
+## Feature
+What feature would you like?
 
 ## Use Case
-Explain the problem this feature would solve or the benefit it would provide.
+What problem does this solve?
 
-## Proposed Solution
-How you envision this feature working (optional).
-
-## Alternatives Considered
-Other approaches you've considered (optional).
-
-## OpenTherm Compatibility
-If this relates to OpenTherm protocol, specify relevant Data IDs or message types (optional).
-
-## Additional Context
-Any other relevant information, screenshots, or examples.
+## Notes
+Any technical details (OpenTherm Data IDs, etc.)
