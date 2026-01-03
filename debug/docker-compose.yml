@@ -32,10 +32,32 @@ services:
     networks:
       - logging
 
+  # Grafana - dashboards and visualization
+  grafana:
+    image: grafana/grafana:10.2.3
+    container_name: esphome-grafana
+    ports:
+      - "3001:3000"  # Port 3001 to avoid conflicts
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_AUTH_ANONYMOUS_ENABLED=false
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana-provisioning:/etc/grafana/provisioning:ro
+    restart: unless-stopped
+    networks:
+      - logging
+    depends_on:
+      - loki
+
 volumes:
   loki-data:
     driver: local
   promtail-data:
+    driver: local
+  grafana-data:
     driver: local
 
 networks:

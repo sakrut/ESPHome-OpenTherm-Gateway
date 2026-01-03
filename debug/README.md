@@ -9,34 +9,38 @@ cd debug/
 ./start.sh
 ```
 
-**Add Loki datasource to your Grafana:**
-- URL: `http://<DOCKER_HOST>:3100`
-- Or copy: `grafana-provisioning/datasources/loki.yml` to your Grafana
+**Access:**
+- Grafana: http://localhost:3001 (admin/admin)
+- Loki API: http://localhost:3100
 
 ## ESPHome Configuration
 
-**MQTT logging (recommended):**
-```yaml
-mqtt:
-  broker: 192.168.1.100
-  log_topic: esphome/opentherm/logs
-  log_topic_level: VERBOSE
+**Serial logging (recommended):**
+```bash
+# Forward ESPHome logs to syslog
+esphome logs opentherm.yaml 2>&1 | \
+  logger -t esphome -n localhost -P 514 -d
+```
 
+**ESPHome config:**
+```yaml
 logger:
   level: VERBOSE
   logs:
     opentherm.component: VERBOSE
 ```
 
-**Forward MQTT to syslog:**
-```bash
-mosquitto_sub -h 192.168.1.100 -t 'esphome/opentherm/logs' | \
-  logger -t esphome -n localhost -P 514 -d
+**Alternative - MQTT logging:**
+```yaml
+mqtt:
+  broker: 192.168.1.100
+  log_topic: esphome/opentherm/logs
+  log_topic_level: VERBOSE
 ```
 
-**Alternative - Serial logging:**
+Forward to syslog:
 ```bash
-esphome logs opentherm.yaml 2>&1 | \
+mosquitto_sub -h 192.168.1.100 -t 'esphome/opentherm/logs' | \
   logger -t esphome -n localhost -P 514 -d
 ```
 
@@ -88,9 +92,13 @@ Promtail automatically extracts:
 ## Configuration
 
 **Ports:**
-- 514/UDP - Syslog (Promtail)
+- 3001/TCP - Grafana UI
 - 3100/TCP - Loki API
+- 514/UDP - Syslog (Promtail)
 - 9080/TCP - Promtail metrics
+
+**Credentials:**
+- Grafana: admin/admin (change in `.env`)
 
 **Retention:** 30 days (configurable in `loki/loki-config.yml`)
 
@@ -166,4 +174,4 @@ for stream in data['data']['result']:
 
 - **Promtail** - Parses `[OT_PKT]`, `[HA_CMD]`, `[OT_CACHE]` structured logs
 - **Loki** - Stores & indexes logs (30d retention, compressed)
-- **Grafana** - Use your existing instance (see datasource config)
+- **Grafana** - Dashboards & visualization (port 3001, auto-configured with Loki datasource)
