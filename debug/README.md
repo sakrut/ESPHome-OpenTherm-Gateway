@@ -22,10 +22,16 @@ cd debug/
 **Method 1: Native syslog (recommended):**
 
 ```yaml
-# ESPHome with syslog component
+# Required dependencies
+udp:
+  addresses: 192.168.1.100  # Docker host IP
+
+time:
+  platform: sntp
+
+# Syslog component (requires udp + time)
 syslog:
-  ip_address: 192.168.1.100  # Docker host IP
-  port: 514
+  # port: 514  # default, optional
 
 logger:
   level: VERBOSE

@@ -31,16 +31,17 @@ logger:
 
   # Optional: Remote syslog logging (for long-term debugging and metrics)
   # See debug/ folder for Loki + Promtail setup
-  # Uncomment and configure to send logs to a remote syslog server
-  # logs:
-  #   level: VERBOSE
-  #   baud_rate: 0  # Disable serial logging to reduce overhead
+  # Uncomment to send logs to remote syslog server:
   #
-  # Remote syslog server configuration:
+  # Required dependencies:
+  # udp:
+  #   addresses: 192.168.1.100  # Your syslog server IP
+  #
+  # time:
+  #   platform: sntp
+  #
   # syslog:
-  #   ip_address: 192.168.1.100  # Your syslog server IP
-  #   port: 514                   # Standard syslog port
-  #   strip_colors: true          # Remove color codes for clean log parsing
+  #   # port: 514  # default, optional
 
   # Alternative: MQTT-based logging (see mqtt section below)
 
