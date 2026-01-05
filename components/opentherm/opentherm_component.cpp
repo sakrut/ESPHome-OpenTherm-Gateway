@@ -191,14 +191,10 @@ namespace esphome
         ESP_LOGD(TAG, "[HA_CMD] action=publish_sensor name=modulation value=%.2f unit=%%", modulation);
       }
 
-      if (heating_target_temperature_sensor_ != nullptr && !std::isnan(heating_target_temp) && heating_target_temp > 0)
+      if (heating_target_temperature_sensor_ != nullptr && !std::isnan(heating_target_temp))
       {
         heating_target_temperature_sensor_->publish_state(heating_target_temp);
         ESP_LOGD(TAG, "[HA_CMD] action=publish_sensor name=heating_target_temperature value=%.2f unit=°C", heating_target_temp);
-      }
-      else if (heating_target_temperature_sensor_ != nullptr && (!std::isnan(heating_target_temp) || heating_target_temp <= 0))
-      {
-        ESP_LOGD(TAG, "[HA_CMD] action=skip_publish_sensor name=heating_target_temperature value=%.2f reason=invalid_or_zero", heating_target_temp);
       }
 
       // Read OEM diagnostic codes (Data-ID 5 and 115) - only if fault or diagnostic active
