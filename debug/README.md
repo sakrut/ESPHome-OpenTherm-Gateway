@@ -19,30 +19,44 @@ cd debug/
 
 ## ESPHome Configuration
 
-**Serial logging (recommended):**
-```bash
-# Forward ESPHome logs to syslog
-esphome logs opentherm.yaml 2>&1 | \
-  logger -t esphome -n localhost -P 514 -d
-```
+**Method 1: Native syslog (recommended):**
 
-**ESPHome config:**
 ```yaml
+# ESPHome with syslog component
+syslog:
+  ip_address: 192.168.1.100  # Docker host IP
+  port: 514
+
 logger:
   level: VERBOSE
   logs:
     opentherm.component: VERBOSE
 ```
 
-**Alternative - MQTT logging:**
+**Method 2: Serial forwarding:**
+
+```bash
+# Forward ESPHome logs to syslog
+esphome logs opentherm.yaml 2>&1 | \
+  logger -t esphome -n localhost -P 514 -d
+```
+
+**Method 3: MQTT forwarding:**
+
 ```yaml
+# ESPHome config
 mqtt:
   broker: 192.168.1.100
   log_topic: esphome/opentherm/logs
   log_topic_level: VERBOSE
+
+logger:
+  level: VERBOSE
+  logs:
+    opentherm.component: VERBOSE
 ```
 
-Forward to syslog:
+Forward MQTT to syslog:
 ```bash
 mosquitto_sub -h 192.168.1.100 -t 'esphome/opentherm/logs' | \
   logger -t esphome -n localhost -P 514 -d
