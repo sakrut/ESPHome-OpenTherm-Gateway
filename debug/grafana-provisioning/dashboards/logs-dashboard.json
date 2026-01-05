@@ -11,7 +11,7 @@
     {
       "datasource": {
         "type": "loki",
-        "uid": "loki"
+        "uid": "${DS_ESPHOME_LOKI}"
       },
       "gridPos": {
         "h": 24,
@@ -34,7 +34,7 @@
         {
           "datasource": {
             "type": "loki",
-            "uid": "loki"
+            "uid": "${DS_ESPHOME_LOKI}"
           },
           "editorMode": "code",
           "expr": "{job=\"esphome-opentherm\"} | logfmt | line_format \"{{.log_type}} {{.message}}\"",
@@ -63,9 +63,9 @@
         },
         "datasource": {
           "type": "loki",
-          "uid": "loki"
+          "uid": "${DS_ESPHOME_LOKI}"
         },
-        "definition": "label_values({job=\"esphome-opentherm\"}, log_type)",
+        "definition": "",
         "hide": 0,
         "includeAll": true,
         "multi": true,
@@ -95,9 +95,9 @@
         },
         "datasource": {
           "type": "loki",
-          "uid": "loki"
+          "uid": "${DS_ESPHOME_LOKI}"
         },
-        "definition": "label_values({job=\"esphome-opentherm\"}, direction)",
+        "definition": "",
         "hide": 0,
         "includeAll": true,
         "multi": true,
@@ -123,9 +123,9 @@
         },
         "datasource": {
           "type": "loki",
-          "uid": "loki"
+          "uid": "${DS_ESPHOME_LOKI}"
         },
-        "definition": "label_values({job=\"esphome-opentherm\"}, msg_id)",
+        "definition": "",
         "hide": 0,
         "includeAll": true,
         "multi": true,
