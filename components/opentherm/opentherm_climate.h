@@ -26,7 +26,7 @@ namespace esphome
 
       // Initialize target temperature from boiler (called once on first update)
       void initialize_target_temperature(float temperature) {
-        if (!target_temperature_initialized_ && !std::isnan(temperature) && temperature > 0) {
+        if (!target_temperature_initialized_ && !std::isnan(temperature)) {
           this->target_temperature = temperature;
           target_temperature_initialized_ = true;
         }

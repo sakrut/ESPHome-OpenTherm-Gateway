@@ -123,19 +123,34 @@ namespace esphome
       bool is_diagnostic = ot_->isDiagnostic(last_status_response_);
 
       if (flame_ != nullptr)
+      {
         flame_->publish_state(is_flame_on);
+        ESP_LOGD(TAG, "[HA_CMD] action=publish_binary_sensor name=flame state=%d", is_flame_on ? 1 : 0);
+      }
 
       if (ch_active_ != nullptr)
+      {
         ch_active_->publish_state(is_central_heating_active);
+        ESP_LOGD(TAG, "[HA_CMD] action=publish_binary_sensor name=ch_active state=%d", is_central_heating_active ? 1 : 0);
+      }
 
       if (dhw_active_ != nullptr)
+      {
         dhw_active_->publish_state(is_hot_water_active);
+        ESP_LOGD(TAG, "[HA_CMD] action=publish_binary_sensor name=dhw_active state=%d", is_hot_water_active ? 1 : 0);
+      }
 
       if (fault_ != nullptr)
+      {
         fault_->publish_state(is_fault);
+        ESP_LOGD(TAG, "[HA_CMD] action=publish_binary_sensor name=fault state=%d", is_fault ? 1 : 0);
+      }
 
       if (diagnostic_ != nullptr)
+      {
         diagnostic_->publish_state(is_diagnostic);
+        ESP_LOGD(TAG, "[HA_CMD] action=publish_binary_sensor name=diagnostic state=%d", is_diagnostic ? 1 : 0);
+      }
 
       // Temperature and other sensors (using cache with timeout)
       float ext_temperature = getExternalTemperature();
@@ -147,22 +162,40 @@ namespace esphome
       float hot_water_temp = getHotWaterTemperature();
 
       if (external_temperature_sensor_ != nullptr && !std::isnan(ext_temperature))
+      {
         external_temperature_sensor_->publish_state(ext_temperature);
+        ESP_LOGD(TAG, "[HA_CMD] action=publish_sensor name=external_temperature value=%.2f unit=°C", ext_temperature);
+      }
 
       if (return_temperature_sensor_ != nullptr && !std::isnan(return_temperature))
+      {
         return_temperature_sensor_->publish_state(return_temperature);
+        ESP_LOGD(TAG, "[HA_CMD] action=publish_sensor name=return_temperature value=%.2f unit=°C", return_temperature);
+      }
 
       if (boiler_temperature_ != nullptr && !std::isnan(boiler_temperature))
+      {
         boiler_temperature_->publish_state(boiler_temperature);
+        ESP_LOGD(TAG, "[HA_CMD] action=publish_sensor name=boiler_temperature value=%.2f unit=°C", boiler_temperature);
+      }
 
       if (pressure_sensor_ != nullptr && !std::isnan(pressure))
+      {
         pressure_sensor_->publish_state(pressure);
+        ESP_LOGD(TAG, "[HA_CMD] action=publish_sensor name=pressure value=%.2f unit=bar", pressure);
+      }
 
       if (modulation_sensor_ != nullptr && !std::isnan(modulation))
+      {
         modulation_sensor_->publish_state(modulation);
+        ESP_LOGD(TAG, "[HA_CMD] action=publish_sensor name=modulation value=%.2f unit=%%", modulation);
+      }
 
-      if (heating_target_temperature_sensor_ != nullptr && !std::isnan(heating_target_temp) && heating_target_temp > 0)
+      if (heating_target_temperature_sensor_ != nullptr && !std::isnan(heating_target_temp))
+      {
         heating_target_temperature_sensor_->publish_state(heating_target_temp);
+        ESP_LOGD(TAG, "[HA_CMD] action=publish_sensor name=heating_target_temperature value=%.2f unit=°C", heating_target_temp);
+      }
 
       // Read OEM diagnostic codes (Data-ID 5 and 115) - only if fault or diagnostic active
       if (is_fault || is_diagnostic)
@@ -213,6 +246,11 @@ namespace esphome
         hot_water_climate_->action = is_hot_water_active ? climate::CLIMATE_ACTION_HEATING : climate::CLIMATE_ACTION_OFF;
         hot_water_climate_->target_temperature = getHotWaterTargetTemperature();
         hot_water_climate_->publish_state();
+
+        ESP_LOGD(TAG, "[HA_CMD] action=publish_climate entity=hot_water current_temp=%.2f target_temp=%.2f mode=%s",
+                 hot_water_temp,
+                 hot_water_climate_->target_temperature,
+                 is_hot_water_active ? "heating" : "off");
       }
 
       if (heating_water_climate_ != nullptr)
@@ -224,6 +262,11 @@ namespace esphome
         // The heating_target_temperature_sensor will show what the boiler is actually using
         heating_water_climate_->initialize_target_temperature(heating_target_temp);
         heating_water_climate_->publish_state();
+
+        ESP_LOGD(TAG, "[HA_CMD] action=publish_climate entity=central_heating current_temp=%.2f target_temp=%.2f mode=%s",
+                 boiler_temperature,
+                 heating_water_climate_->target_temperature,
+                 is_central_heating_active ? "heating" : "off");
       }
     }
 
@@ -279,15 +322,33 @@ namespace esphome
         OpenthermClimate *climate,
         const char *name)
     {
-      ESP_LOGI(TAG, "Setting %s temperature to %.1f°C", name, temperature);
+      ESP_LOGD(TAG, "[HA_CMD] action=set_temperature entity=%s target=%.1f unit=°C", name, temperature);
 
       unsigned int data = ot_->temperatureToData(temperature);
       unsigned long request = ot_->buildRequest(OpenThermRequestType::WRITE, write_msg_id, data);
-      unsigned long response = ot_->sendRequest(request);
 
-      if (!ot_->isValidResponse(response))
+      ESP_LOGD(TAG, "[HA_CMD] action=ot_write msg_id=%d req_data=0x%04X req_raw=0x%08lX",
+               static_cast<int>(write_msg_id), data, request);
+      ESP_LOGV(TAG, "[OT_PKT] dir=GatewayToBoiler type=ha_action msg_id=%d msg_type=WRITE req_raw=0x%08lX",
+               static_cast<int>(write_msg_id), request);
+
+      unsigned long response = ot_->sendRequest(request);
+      bool is_valid = ot_->isValidResponse(response);
+
+      if (is_valid)
       {
-        ESP_LOGE(TAG, "Failed to set %s temperature - invalid response", name);
+        uint16_t resp_data = response & 0xFFFF;
+        ESP_LOGD(TAG, "[HA_CMD] action=ot_write_resp msg_id=%d resp_raw=0x%08lX resp_data=0x%04X valid=1",
+                 static_cast<int>(write_msg_id), response, resp_data);
+        ESP_LOGV(TAG, "[OT_PKT] dir=BoilerToGateway type=ha_action msg_id=%d msg_type=WRITE_ACK resp_raw=0x%08lX resp_data=0x%04X valid=1",
+                 static_cast<int>(write_msg_id), response, resp_data);
+      }
+      else
+      {
+        ESP_LOGE(TAG, "[HA_CMD] action=ot_write_resp msg_id=%d resp_raw=0x%08lX valid=0 error=invalid_response",
+                 static_cast<int>(write_msg_id), response);
+        ESP_LOGV(TAG, "[OT_PKT] dir=BoilerToGateway type=ha_action msg_id=%d resp_raw=0x%08lX valid=0",
+                 static_cast<int>(write_msg_id), response);
         return false;
       }
 
@@ -298,29 +359,38 @@ namespace esphome
       const int max_retries = 3;
       for (int retry = 0; retry < max_retries; retry++)
       {
-        unsigned long read_response = ot_->sendRequest(
-            ot_->buildRequest(OpenThermRequestType::READ, read_msg_id, 0));
+        unsigned long read_request = ot_->buildRequest(OpenThermRequestType::READ, read_msg_id, 0);
+        ESP_LOGV(TAG, "[OT_PKT] dir=GatewayToBoiler type=verify msg_id=%d msg_type=READ req_raw=0x%08lX retry=%d",
+                 static_cast<int>(read_msg_id), read_request, retry);
+
+        unsigned long read_response = ot_->sendRequest(read_request);
 
         if (ot_->isValidResponse(read_response))
         {
           float actual_setpoint = ot_->getFloat(read_response);
 
+          uint16_t resp_data = read_response & 0xFFFF;
+          ESP_LOGV(TAG, "[OT_PKT] dir=BoilerToGateway type=verify msg_id=%d msg_type=READ_ACK resp_raw=0x%08lX resp_data=0x%04X parsed=%.2f valid=1",
+                   static_cast<int>(read_msg_id), read_response, resp_data, actual_setpoint);
+
           if (!std::isnan(actual_setpoint))
           {
-            ESP_LOGI(TAG, "%s setpoint verified: %.1f°C (requested: %.1f°C)",
-                     name, actual_setpoint, temperature);
+            bool match = std::abs(actual_setpoint - temperature) <= 1.0f;
+            ESP_LOGD(TAG, "[HA_CMD] action=verify_setpoint msg_id=%d actual=%.1f requested=%.1f match=%d",
+                     static_cast<int>(read_msg_id), actual_setpoint, temperature, match ? 1 : 0);
 
             // Update climate entity immediately with verified value
             if (climate != nullptr)
             {
               climate->target_temperature = actual_setpoint;
               climate->publish_state();
+              ESP_LOGD(TAG, "[HA_CMD] action=update_climate entity=%s target=%.1f", name, actual_setpoint);
             }
 
             // Check if setpoint was clamped by boiler (e.g., min/max limits)
-            if (std::abs(actual_setpoint - temperature) > 1.0f)
+            if (!match)
             {
-              ESP_LOGW(TAG, "%s setpoint was adjusted by boiler from %.1f°C to %.1f°C (min/max limits?)",
+              ESP_LOGW(TAG, "[HA_CMD] action=setpoint_adjusted entity=%s requested=%.1f actual=%.1f reason=min_max_limits",
                        name, temperature, actual_setpoint);
             }
 
@@ -332,13 +402,14 @@ namespace esphome
         if (retry < max_retries - 1)
         {
           unsigned long backoff = 50 * (1 << retry); // 50ms, 100ms, 200ms
-          ESP_LOGW(TAG, "Failed to verify %s setpoint, retry %d/%d after %lu ms",
-                   name, retry + 1, max_retries, backoff);
+          ESP_LOGW(TAG, "[HA_CMD] action=verify_failed msg_id=%d retry=%d/%d backoff_ms=%lu",
+                   static_cast<int>(read_msg_id), retry + 1, max_retries, backoff);
           delay(backoff);
         }
       }
 
-      ESP_LOGW(TAG, "%s setpoint write succeeded but verification failed after %d retries", name, max_retries);
+      ESP_LOGW(TAG, "[HA_CMD] action=verification_failed entity=%s status=write_succeeded_verify_failed retries=%d",
+               name, max_retries);
       return true; // Write succeeded even if verification failed
     }
 
@@ -376,17 +447,43 @@ namespace esphome
     {
       if (instance_ != nullptr && instance_->ot_ != nullptr && instance_->slave_ot_ != nullptr)
       {
-        unsigned long response = instance_->ot_->sendRequest(request);
-        instance_->slave_ot_->sendResponse(response);
-
         OpenThermMessageID id = instance_->ot_->getDataID(request);
         OpenThermMessageType msg_type = instance_->ot_->getMessageType(request);
 
-        // Log intercepted requests at VERBOSE level
-        ESP_LOGV(TAG, "Intercepted msg_id %d (type %d), response valid: %s",
+        // VERBOSE: Log intercepted request (Master->Slave)
+        ESP_LOGV(TAG, "[OT_PKT] dir=MasterToSlave type=intercept msg_id=%d msg_type=%s req_raw=0x%08lX",
                  static_cast<int>(id),
-                 static_cast<int>(msg_type),
-                 instance_->ot_->isValidResponse(response) ? "yes" : "no");
+                 instance_->getMessageTypeName(msg_type),
+                 request);
+
+        unsigned long response = instance_->ot_->sendRequest(request);
+        instance_->slave_ot_->sendResponse(response);
+
+        bool is_valid = instance_->ot_->isValidResponse(response);
+
+        // VERBOSE: Log intercepted response (Slave->Master) with parsed value
+        if (is_valid)
+        {
+          float parsed_value = instance_->ot_->getFloat(response);
+          uint16_t resp_data = response & 0xFFFF;
+          uint8_t hb = (resp_data >> 8) & 0xFF;
+          uint8_t lb = resp_data & 0xFF;
+
+          ESP_LOGV(TAG, "[OT_PKT] dir=SlaveToMaster type=intercept msg_id=%d msg_type=%s resp_raw=0x%08lX resp_data=0x%04X hb=0x%02X lb=0x%02X parsed=%.2f valid=1",
+                   static_cast<int>(id),
+                   instance_->getMessageTypeName(msg_type),
+                   response,
+                   resp_data,
+                   hb, lb,
+                   parsed_value);
+        }
+        else
+        {
+          ESP_LOGV(TAG, "[OT_PKT] dir=SlaveToMaster type=intercept msg_id=%d msg_type=%s resp_raw=0x%08lX valid=0",
+                   static_cast<int>(id),
+                   instance_->getMessageTypeName(msg_type),
+                   response);
+        }
 
         // Update status response (critical for binary sensors)
         if (id == OpenThermMessageID::Status)
@@ -395,7 +492,7 @@ namespace esphome
         }
 
         // Store response for processing in loop() (outside interrupt context)
-        if (instance_->ot_->isValidResponse(response))
+        if (is_valid)
         {
           last_intercepted_response_ = response;
           last_intercepted_id_ = id;
@@ -408,7 +505,7 @@ namespace esphome
           last_intercepted_response_ = request; // Use request, not response
           last_intercepted_id_ = id;
           has_new_intercepted_response_ = true;
-          ESP_LOGV(TAG, "Caching WRITE-DATA request for msg_id %d", static_cast<int>(id));
+          ESP_LOGV(TAG, "[OT_PKT] type=intercept caching WRITE request for msg_id=%d", static_cast<int>(id));
         }
       }
     }
@@ -486,19 +583,33 @@ namespace esphome
       // Handle first fetch (cache never updated) - last_update will be 0
       if (cache.last_update == 0)
       {
-        ESP_LOGV(TAG, "First fetch for msg_id %d", static_cast<int>(msg_id));
-        unsigned long response = ot_->sendRequest(ot_->buildRequest(OpenThermRequestType::READ, msg_id, 0));
+        ESP_LOGV(TAG, "[OT_CACHE] msg_id=%d first_fetch=1", static_cast<int>(msg_id));
 
-        if (ot_->isValidResponse(response))
+        unsigned long request = ot_->buildRequest(OpenThermRequestType::READ, msg_id, 0);
+        ESP_LOGV(TAG, "[OT_PKT] dir=GatewayToBoiler type=fetch msg_id=%d msg_type=READ req_raw=0x%08lX",
+                 static_cast<int>(msg_id), request);
+
+        unsigned long response = ot_->sendRequest(request);
+        bool is_valid = ot_->isValidResponse(response);
+
+        if (is_valid)
         {
           cache.value = ot_->getFloat(response);
           cache.last_update = now;
-          ESP_LOGV(TAG, "First fetch for msg_id %d: %.2f", static_cast<int>(msg_id), cache.value);
+
+          uint16_t resp_data = response & 0xFFFF;
+          uint8_t hb = (resp_data >> 8) & 0xFF;
+          uint8_t lb = resp_data & 0xFF;
+
+          ESP_LOGV(TAG, "[OT_PKT] dir=BoilerToGateway type=fetch msg_id=%d msg_type=READ_ACK resp_raw=0x%08lX resp_data=0x%04X hb=0x%02X lb=0x%02X parsed=%.2f valid=1",
+                   static_cast<int>(msg_id), response, resp_data, hb, lb, cache.value);
           return cache.value;
         }
         else
         {
-          ESP_LOGW(TAG, "First fetch failed for msg_id %d", static_cast<int>(msg_id));
+          ESP_LOGV(TAG, "[OT_PKT] dir=BoilerToGateway type=fetch msg_id=%d resp_raw=0x%08lX valid=0",
+                   static_cast<int>(msg_id), response);
+          ESP_LOGW(TAG, "[OT_CACHE] msg_id=%d first_fetch_failed=1", static_cast<int>(msg_id));
           cache.last_update = now; // Set timestamp to prevent immediate retry
           return NAN;
         }
@@ -510,7 +621,7 @@ namespace esphome
       // Check if cache is fresh (updated within last minute)
       if (!std::isnan(cache.value) && cache_age < CACHE_TIMEOUT_)
       {
-        ESP_LOGV(TAG, "Using cached value for msg_id %d: %.2f (age: %lu ms)",
+        ESP_LOGV(TAG, "[OT_CACHE] msg_id=%d cache_hit=1 value=%.2f age_ms=%lu",
                  static_cast<int>(msg_id), cache.value, cache_age);
         return cache.value;
       }
@@ -518,31 +629,85 @@ namespace esphome
       // Rate limiting: Don't fetch if we just fetched recently (prevents spam if cache keeps expiring)
       if (cache_age < MIN_FETCH_INTERVAL_)
       {
-        ESP_LOGV(TAG, "Rate limited fetch for msg_id %d (last fetch %lu ms ago, min interval %lu ms)",
+        ESP_LOGV(TAG, "[OT_CACHE] msg_id=%d rate_limited=1 age_ms=%lu min_interval_ms=%lu returning_stale=1",
                  static_cast<int>(msg_id), cache_age, MIN_FETCH_INTERVAL_);
         return cache.value; // Return stale value rather than spam the bus
       }
 
       // Cache is stale - fetch from boiler
-      ESP_LOGV(TAG, "Cache stale for msg_id %d (age: %lu ms), fetching from boiler",
+      ESP_LOGV(TAG, "[OT_CACHE] msg_id=%d cache_stale=1 age_ms=%lu fetching=1",
                static_cast<int>(msg_id), cache_age);
-      unsigned long response = ot_->sendRequest(ot_->buildRequest(OpenThermRequestType::READ, msg_id, 0));
 
-      if (ot_->isValidResponse(response))
+      unsigned long request = ot_->buildRequest(OpenThermRequestType::READ, msg_id, 0);
+      ESP_LOGV(TAG, "[OT_PKT] dir=GatewayToBoiler type=fetch msg_id=%d msg_type=READ req_raw=0x%08lX",
+               static_cast<int>(msg_id), request);
+
+      unsigned long response = ot_->sendRequest(request);
+      bool is_valid = ot_->isValidResponse(response);
+
+      if (is_valid)
       {
         cache.value = ot_->getFloat(response);
         cache.last_update = now;
-        ESP_LOGV(TAG, "Fetched value for msg_id %d: %.2f", static_cast<int>(msg_id), cache.value);
+
+        uint16_t resp_data = response & 0xFFFF;
+        uint8_t hb = (resp_data >> 8) & 0xFF;
+        uint8_t lb = resp_data & 0xFF;
+
+        ESP_LOGV(TAG, "[OT_PKT] dir=BoilerToGateway type=fetch msg_id=%d msg_type=READ_ACK resp_raw=0x%08lX resp_data=0x%04X hb=0x%02X lb=0x%02X parsed=%.2f valid=1",
+                 static_cast<int>(msg_id), response, resp_data, hb, lb, cache.value);
         return cache.value;
       }
       else
       {
-        ESP_LOGW(TAG, "Failed to fetch value for msg_id %d, using stale cache if available", static_cast<int>(msg_id));
+        ESP_LOGV(TAG, "[OT_PKT] dir=BoilerToGateway type=fetch msg_id=%d resp_raw=0x%08lX valid=0",
+                 static_cast<int>(msg_id), response);
+        ESP_LOGW(TAG, "[OT_CACHE] msg_id=%d fetch_failed=1 using_stale=1", static_cast<int>(msg_id));
         // Update timestamp even on failure to prevent continuous retry spam
         cache.last_update = now;
       }
 
       return cache.value; // Return stale value or NAN
+    }
+
+    const char* OpenthermComponent::getMessageTypeName(OpenThermMessageType type)
+    {
+      switch (type)
+      {
+        case OpenThermMessageType::READ_DATA: return "READ";
+        case OpenThermMessageType::WRITE_DATA: return "WRITE";
+        case OpenThermMessageType::INVALID_DATA: return "INVALID";
+        case OpenThermMessageType::READ_ACK: return "READ_ACK";
+        case OpenThermMessageType::WRITE_ACK: return "WRITE_ACK";
+        case OpenThermMessageType::DATA_INVALID: return "DATA_INVALID";
+        case OpenThermMessageType::UNKNOWN_DATA_ID: return "UNKNOWN_ID";
+        default: return "UNKNOWN";
+      }
+    }
+
+    const char* OpenthermComponent::getMessageIDName(OpenThermMessageID id)
+    {
+      switch (id)
+      {
+        case OpenThermMessageID::Status: return "Status";
+        case OpenThermMessageID::TSet: return "TSet";
+        case OpenThermMessageID::SConfigSMemberIDcode: return "SlaveConfig";
+        case OpenThermMessageID::Command: return "Command";
+        case OpenThermMessageID::ASFflags: return "ASFflags";
+        case OpenThermMessageID::MaxRelModLevelSetting: return "MaxRelMod";
+        case OpenThermMessageID::RelModLevel: return "RelModLevel";
+        case OpenThermMessageID::CHPressure: return "CHPressure";
+        case OpenThermMessageID::Tboiler: return "Tboiler";
+        case OpenThermMessageID::Tdhw: return "Tdhw";
+        case OpenThermMessageID::Toutside: return "Toutside";
+        case OpenThermMessageID::Tret: return "Tret";
+        case OpenThermMessageID::TdhwSet: return "TdhwSet";
+        case OpenThermMessageID::MaxTSet: return "MaxTSet";
+        case OpenThermMessageID::OEMDiagnosticCode: return "OEMDiag";
+        case OpenThermMessageID::OpenThermVersionMaster: return "OT_Ver_Master";
+        case OpenThermMessageID::OpenThermVersionSlave: return "OT_Ver_Slave";
+        default: return "Unknown";
+      }
     }
 
     void IRAM_ATTR OpenthermComponent::handleInterrupt()

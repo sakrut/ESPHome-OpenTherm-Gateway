@@ -176,15 +176,35 @@ button:
 logger:
   level: DEBUG
   logs:
-    opentherm.component: DEBUG
-    opentherm.climate: DEBUG
+    opentherm.component: DEBUG  # Recommended for general use
+    # opentherm.component: VERBOSE  # Only for protocol debugging (generates A LOT of logs!)
 ```
 
+**Logging Levels:**
+- **DEBUG** - Home Assistant actions, sensor publishing (recommended)
+- **VERBOSE** - All OpenTherm packets with hex dumps (debugging only)
+
 Look for:
-- `Intercepted msg_id` - What's captured
-- `Cached X: Y°C` - Cache working
-- `Setting X temperature` - Writes
-- `X setpoint verified` - Verification
+- `[OT_PKT]` - OpenTherm packet intercepts/fetches
+- `[HA_CMD]` - Home Assistant actions
+- `[OT_CACHE]` - Cache operations
+
+### Long-Term Debugging & Metrics
+
+For debugging intermittent issues (like heating curve anomalies), use the monitoring stack in [`debug/`](debug/) folder:
+
+```bash
+cd debug/
+./start.sh
+```
+
+**Features:**
+- **Loki** - Log aggregation (30 days retention)
+- **Promtail** - Structured log parsing
+- **Grafana integration** - Dashboards & metrics
+- **LogQL queries** - Find anomalies, build metrics
+
+See [`debug/README.md`](debug/README.md) for setup and usage.
 
 ## Hardware
 

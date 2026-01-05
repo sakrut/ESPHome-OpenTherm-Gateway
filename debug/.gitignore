@@ -1,0 +1,10 @@
+# Environment variables
+.env
+
+# Docker volumes data
+*.log
+*.db
+positions.yaml
+
+# Keep dashboard JSON files
+!grafana-provisioning/dashboards/*.json

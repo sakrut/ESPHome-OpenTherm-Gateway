@@ -1,0 +1,65 @@
+version: '3.8'
+
+services:
+  # Promtail - syslog collector dla ESPHome logów
+  promtail:
+    image: grafana/promtail:2.9.3
+    container_name: esphome-promtail
+    ports:
+      - "514:514/udp"      # Syslog UDP
+      - "514:514/tcp"      # Syslog TCP (opcjonalnie)
+    volumes:
+      - ./promtail/promtail-config.yml:/etc/promtail/config.yml:ro
+      - promtail-data:/tmp/promtail
+    command: -config.file=/etc/promtail/config.yml
+    restart: unless-stopped
+    networks:
+      - logging
+    depends_on:
+      - loki
+
+  # Loki - log aggregation system
+  loki:
+    image: grafana/loki:2.9.3
+    container_name: esphome-loki
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./loki/loki-config.yml:/etc/loki/local-config.yaml:ro
+      - loki-data:/loki
+    command: -config.file=/etc/loki/local-config.yaml
+    restart: unless-stopped
+    networks:
+      - logging
+
+  # Grafana - dashboards and visualization
+  grafana:
+    image: grafana/grafana:10.2.3
+    container_name: esphome-grafana
+    ports:
+      - "3001:3000"  # Port 3001 to avoid conflicts
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_AUTH_ANONYMOUS_ENABLED=false
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana-provisioning:/etc/grafana/provisioning:ro
+    restart: unless-stopped
+    networks:
+      - logging
+    depends_on:
+      - loki
+
+volumes:
+  loki-data:
+    driver: local
+  promtail-data:
+    driver: local
+  grafana-data:
+    driver: local
+
+networks:
+  logging:
+    driver: bridge

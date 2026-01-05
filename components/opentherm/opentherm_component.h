@@ -164,6 +164,22 @@ namespace esphome
           OpenthermClimate *climate,
           const char *name);
 
+      // Structured logging helpers
+      void logOpenThermPacket(
+          const char *direction,
+          const char *type,
+          OpenThermMessageID msg_id,
+          OpenThermMessageType msg_type,
+          unsigned long request,
+          unsigned long response,
+          bool is_request,
+          bool is_valid,
+          float parsed_value = NAN,
+          const char *unit = nullptr);
+
+      const char* getMessageTypeName(OpenThermMessageType type);
+      const char* getMessageIDName(OpenThermMessageID id);
+
       // Interrupt handlers
       static void IRAM_ATTR handleInterrupt();
       static void IRAM_ATTR slaveHandleInterrupt();

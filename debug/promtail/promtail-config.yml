@@ -1,0 +1,176 @@
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/promtail/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  # Syslog receiver dla ESPHome
+  - job_name: esphome-opentherm
+    syslog:
+      listen_address: 0.0.0.0:514
+      listen_protocol: udp
+      idle_timeout: 60s
+      label_structured_data: yes
+      labels:
+        job: "esphome-opentherm"
+        component: "opentherm-gateway"
+
+    # Pipeline stages - parsowanie structured logów
+    pipeline_stages:
+      # 1. Ekstrakcja typu logu [OT_PKT], [HA_CMD], [OT_CACHE]
+      - regex:
+          expression: '^\[(?P<log_level>[A-Z])\]\s*\[opentherm\.component:\d+\]\s*\[(?P<log_type>[A-Z_]+)\]\s+(?P<message>.*)'
+
+      # 2. Parsowanie wszystkich key=value par
+      - regex:
+          expression: 'dir=(?P<direction>\w+)'
+          source: message
+
+      - regex:
+          expression: 'type=(?P<packet_type>\w+)'
+          source: message
+
+      - regex:
+          expression: 'msg_id=(?P<msg_id>\d+)'
+          source: message
+
+      - regex:
+          expression: 'msg_type=(?P<msg_type>\w+)'
+          source: message
+
+      - regex:
+          expression: 'parsed=(?P<parsed_value>-?[\d.]+)'
+          source: message
+
+      - regex:
+          expression: 'value=(?P<sensor_value>-?[\d.]+)'
+          source: message
+
+      - regex:
+          expression: 'target=(?P<target_temp>-?[\d.]+)'
+          source: message
+
+      - regex:
+          expression: 'current_temp=(?P<current_temp>-?[\d.]+)'
+          source: message
+
+      - regex:
+          expression: 'action=(?P<ha_action>\w+)'
+          source: message
+
+      - regex:
+          expression: 'entity=(?P<entity>\w+)'
+          source: message
+
+      - regex:
+          expression: 'name=(?P<sensor_name>\w+)'
+          source: message
+
+      - regex:
+          expression: 'cache_hit=(?P<cache_hit>[01])'
+          source: message
+
+      - regex:
+          expression: 'cache_stale=(?P<cache_stale>[01])'
+          source: message
+
+      - regex:
+          expression: 'rate_limited=(?P<rate_limited>[01])'
+          source: message
+
+      - regex:
+          expression: 'valid=(?P<valid>[01])'
+          source: message
+
+      - regex:
+          expression: 'resp_raw=0x(?P<resp_hex>[0-9A-Fa-f]+)'
+          source: message
+
+      - regex:
+          expression: 'req_raw=0x(?P<req_hex>[0-9A-Fa-f]+)'
+          source: message
+
+      # 3. Labels dla łatwego filtrowania w Grafanie
+      - labels:
+          log_type:
+          log_level:
+          direction:
+          msg_id:
+          ha_action:
+          entity:
+          sensor_name:
+          packet_type:
+
+      # 4. Metryki z logów (exportowane do Prometheus przez Promtail)
+      - metrics:
+          # Licznik wszystkich pakietów OpenTherm
+          opentherm_packets_total:
+            type: Counter
+            description: "Total OpenTherm packets by direction"
+            source: log_type
+            config:
+              value: "OT_PKT"
+              action: inc
+
+          # Licznik akcji Home Assistant
+          ha_actions_total:
+            type: Counter
+            description: "Total Home Assistant actions"
+            source: log_type
+            config:
+              value: "HA_CMD"
+              action: inc
+
+          # Cache hit ratio
+          cache_hits_total:
+            type: Counter
+            description: "Cache hits"
+            source: cache_hit
+            config:
+              value: "1"
+              action: inc
+
+          cache_misses_total:
+            type: Counter
+            description: "Cache misses (stale)"
+            source: cache_stale
+            config:
+              value: "1"
+              action: inc
+
+          # Rate limiting
+          rate_limited_requests_total:
+            type: Counter
+            description: "Rate limited requests"
+            source: rate_limited
+            config:
+              value: "1"
+              action: inc
+
+          # Invalid responses
+          invalid_responses_total:
+            type: Counter
+            description: "Invalid OpenTherm responses"
+            source: valid
+            config:
+              value: "0"
+              action: inc
+
+          # Temperature gauge (ostatnia wartość)
+          temperature_celsius:
+            type: Gauge
+            description: "Temperature values from sensors"
+            source: parsed_value
+            config:
+              match_all: true
+              action: set
+
+      # 5. Drop pustych wartości (zmniejsza storage)
+      - match:
+          selector: '{log_type=""}'
+          action: drop

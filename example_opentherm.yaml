@@ -19,7 +19,31 @@ esp8266:
 logger:
   level: DEBUG
   logs:
-    opentherm.component: DEBUG
+    # Component logging levels:
+    # - VERBOSE: All OpenTherm packets (Master<->Slave intercepts + Gateway<->Boiler fetches)
+    #            Includes hex dumps, parsed values, cache operations
+    #            ⚠️ WARNING: Generates A LOT of logs! Use only for debugging specific issues
+    # - DEBUG: All Home Assistant actions (sensor publishing, climate updates, temperature commands)
+    #          Recommended for general use
+    # - INFO: Important events (startup, configuration, verified setpoints)
+    # - WARN/ERROR: Problems and failures only
+    opentherm.component: DEBUG  # Change to VERBOSE only when debugging OpenTherm protocol issues
+
+  # Optional: Remote syslog logging (for long-term debugging and metrics)
+  # See debug/ folder for Loki + Promtail setup
+  # Uncomment to send logs to remote syslog server:
+  #
+  # Required dependencies:
+  # udp:
+  #   addresses: 192.168.1.100  # Your syslog server IP
+  #
+  # time:
+  #   platform: sntp
+  #
+  # syslog:
+  #   # port: 514  # default, optional
+
+  # Alternative: MQTT-based logging (see mqtt section below)
 
 # Enable Home Assistant API
 api:
@@ -40,6 +64,22 @@ wifi:
     password: "YOUR_AP_PASSWORD"
 
 captive_portal:
+
+# Optional: MQTT for remote logging and metrics
+# Uncomment to enable MQTT-based logging and diagnostic publishing
+# mqtt:
+#   broker: !secret mqtt_broker  # e.g., 192.168.1.100
+#   port: 1883
+#   username: !secret mqtt_username
+#   password: !secret mqtt_password
+#   topic_prefix: esphome/${device_name}
+#
+#   # Optional: Publish logs to MQTT topic for remote collection
+#   log_topic: ${device_name}/logs
+#   log_topic_level: VERBOSE  # or DEBUG
+#
+#   # You can then subscribe to esphome/opentherm_gateway/logs
+#   # and pipe to file or metrics system (Grafana Loki, ELK, etc.)
 
 # External components setup
 external_components:

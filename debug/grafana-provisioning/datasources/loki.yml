@@ -1,0 +1,17 @@
+apiVersion: 1
+
+datasources:
+  - name: ESPHome Loki
+    type: loki
+    access: proxy
+    url: http://loki:3100  # Docker network hostname
+    isDefault: true
+    editable: true
+    jsonData:
+      maxLines: 1000
+      derivedFields:
+        # Auto-link msg_id to OpenTherm spec
+        - datasourceUid: loki
+          matcherRegex: "msg_id=(\\d+)"
+          name: "Message ID"
+          url: "https://opentherm.iotta.co.uk/OT-2-2.html#id$${__value.raw}"
