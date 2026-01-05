@@ -1,0 +1,158 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "h": 24,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": false,
+        "showCommonLabels": false,
+        "showLabels": false,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": false
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "editorMode": "code",
+          "expr": "{job=\"esphome-opentherm\"} | logfmt | line_format \"{{.log_type}} {{.message}}\"",
+          "queryType": "range",
+          "refId": "A"
+        }
+      ],
+      "title": "OpenTherm Logs",
+      "type": "logs"
+    }
+  ],
+  "refresh": "5s",
+  "schemaVersion": 39,
+  "tags": ["esphome", "opentherm"],
+  "templating": {
+    "list": [
+      {
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "datasource": {
+          "type": "loki",
+          "uid": "loki"
+        },
+        "definition": "label_values({job=\"esphome-opentherm\"}, log_type)",
+        "hide": 0,
+        "includeAll": true,
+        "multi": true,
+        "name": "log_type",
+        "options": [],
+        "query": {
+          "label": "log_type",
+          "refId": "LokiVariableQueryEditor-VariableQuery",
+          "stream": "{job=\"esphome-opentherm\"}",
+          "type": 1
+        },
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 0,
+        "type": "query"
+      },
+      {
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "datasource": {
+          "type": "loki",
+          "uid": "loki"
+        },
+        "definition": "label_values({job=\"esphome-opentherm\"}, direction)",
+        "hide": 0,
+        "includeAll": true,
+        "multi": true,
+        "name": "direction",
+        "options": [],
+        "query": {
+          "label": "direction",
+          "refId": "LokiVariableQueryEditor-VariableQuery",
+          "stream": "{job=\"esphome-opentherm\"}",
+          "type": 1
+        },
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 0,
+        "type": "query"
+      },
+      {
+        "current": {
+          "selected": false,
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "loki",
+          "uid": "loki"
+        },
+        "definition": "label_values({job=\"esphome-opentherm\"}, msg_id)",
+        "hide": 0,
+        "includeAll": true,
+        "multi": true,
+        "name": "msg_id",
+        "options": [],
+        "query": {
+          "label": "msg_id",
+          "refId": "LokiVariableQueryEditor-VariableQuery",
+          "stream": "{job=\"esphome-opentherm\"}",
+          "type": 1
+        },
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 3,
+        "type": "query"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "",
+  "title": "ESPHome OpenTherm - Logs",
+  "uid": "esphome-ot-logs",
+  "version": 0,
+  "weekStart": ""
+}

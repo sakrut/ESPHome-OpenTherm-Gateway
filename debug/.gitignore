@@ -6,6 +6,5 @@
 *.db
 positions.yaml
 
-# Grafana provisioning generated files
-grafana-provisioning/dashboards/*.json
-!grafana-provisioning/dashboards/dashboard.yml
+# Keep dashboard JSON files
+!grafana-provisioning/dashboards/*.json

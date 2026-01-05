@@ -13,6 +13,10 @@ cd debug/
 - Grafana: http://localhost:3001 (admin/admin)
 - Loki API: http://localhost:3100
 
+**Pre-configured dashboards:**
+- **ESPHome OpenTherm - Logs** - Log table with filters (log_type, direction, msg_id)
+- **ESPHome OpenTherm - Metrics** - Packet rates, cache ratio, temperatures, errors
+
 ## ESPHome Configuration
 
 **Serial logging (recommended):**
