@@ -26,10 +26,16 @@ climate::ClimateTraits OpenthermClimate::traits() {
   traits.set_supported_modes({climate::CLIMATE_MODE_OFF, climate::CLIMATE_MODE_HEAT});
   traits.set_supports_two_point_target_temperature(false);
   traits.set_supports_action(true);
-  
-  traits.set_visual_min_temperature(5);
-  traits.set_visual_max_temperature(80);
-  traits.set_visual_temperature_step(1);
+
+  if (read_only_) {
+    traits.set_visual_min_temperature(5);
+    traits.set_visual_max_temperature(35);
+    traits.set_visual_temperature_step(0.5);
+  } else {
+    traits.set_visual_min_temperature(5);
+    traits.set_visual_max_temperature(80);
+    traits.set_visual_temperature_step(1);
+  }
   
   return traits;
 }
@@ -42,7 +48,7 @@ void OpenthermClimate::control(const climate::ClimateCall &call) {
     this->publish_state();
   }
   
-  if (call.get_target_temperature().has_value()) {
+  if (call.get_target_temperature().has_value() && !read_only_) {
     float temp = *call.get_target_temperature();
     ESP_LOGD(TAG, "Setting target temperature to %.1f", temp);
     this->target_temperature = temp;

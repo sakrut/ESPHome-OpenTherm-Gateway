@@ -77,6 +77,10 @@ opentherm:
     name: "Boiler Temperature"
   heating_target_temperature:
     name: "Heating Target"  # What boiler actually uses
+  room_temperature:
+    name: "Room Temperature"  # Intercepted Tr (Data-ID 24)
+  room_setpoint:
+    name: "Room Setpoint"  # Intercepted TrSet (Data-ID 16)
 
   # System sensors
   pressure:
@@ -105,6 +109,16 @@ opentherm:
     name: "Hot Water"
   heating_water_climate:
     name: "Central Heating"
+  room_climate:
+    name: "Room Climate"
+    # Optional: use external sensor for current room temperature
+    # current_temperature_sensor: living_room_temp
+
+# Optional external temperature source for room_climate current_temperature
+# sensor:
+#   - platform: homeassistant
+#     id: living_room_temp
+#     entity_id: sensor.living_room_temperature
 
 # Boiler reset button
 button:
@@ -140,6 +154,8 @@ button:
 - `heating_target_temperature` sensor shows **what boiler uses**
 - Climate entity shows **what you requested**
 - Boilers with heating curves calculate water temp based on outdoor temp
+- `room_climate` is read-only and follows thermostat setpoint (TrSet)
+- `room_climate.current_temperature` priority: external sensor, then OpenTherm Tr
 
 ### Smart Caching
 
@@ -168,6 +184,7 @@ button:
 
 **Reset doesn't work**
 - BLOR only works when boiler is in fault/lockout
+- Success is detected from OpenTherm `WRITE_ACK` response type
 - Check DEBUG logs for details
 
 ### Debug Logging
@@ -212,6 +229,7 @@ Look for:
 ## Documentation
 
 - [`example_opentherm.yaml`](example_opentherm.yaml) - Complete config
+- [`docs/upgrade-2.1.0.md`](docs/upgrade-2.1.0.md) - Upgrade from `2.0.0` to `2.1.0` and new config options
 - [`CLAUDE.md`](CLAUDE.md) - Architecture & development guide
 - [OpenTherm Protocol v2.2](doc/Opentherm%20Protocol%20v2-2.pdf) - Full spec
 

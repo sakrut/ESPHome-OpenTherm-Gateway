@@ -1,0 +1,73 @@
+substitutions:
+  device_name: opentherm-gw-test
+  friendly_name: OpenTherm Gateway Test
+
+esphome:
+  name: ${device_name}
+  friendly_name: ${friendly_name}
+
+esp8266:
+  board: nodemcuv2
+
+logger:
+  level: DEBUG
+  logs:
+    opentherm.component: DEBUG
+    opentherm.climate: DEBUG
+
+api:
+  encryption:
+    key: "hO+ZpI4ff3w/pBFIZ73rf8KSb/AmMd7s4sor0R979nI="
+
+ota:
+  - platform: esphome
+    password: "test-password"
+
+wifi:
+  ssid: "test-ssid"
+  password: "test-password"
+  ap:
+    ssid: "${device_name}-fallback"
+    password: "fallback-pass"
+
+captive_portal:
+
+external_components:
+  - source:
+      type: local
+      path: ../../components
+    components: [ opentherm ]
+
+binary_sensor:
+sensor:
+climate:
+button:
+  - platform: restart
+    name: "Restart"
+
+opentherm:
+  id: opentherm_gateway
+  in_pin: 4
+  out_pin: 5
+  slave_in_pin: 12
+  slave_out_pin: 13
+  update_interval: 30s
+
+  room_temperature:
+    name: "Room Temperature"
+  room_setpoint:
+    name: "Room Setpoint"
+
+  boiler_temperature:
+    name: "Boiler Temperature"
+  heating_target_temperature:
+    name: "CH Water Setpoint"
+
+  heating_water_climate:
+    name: "Central Heating Water"
+
+  hot_water_climate:
+    name: "Hot Water"
+
+  room_climate:
+    name: "Room Climate"

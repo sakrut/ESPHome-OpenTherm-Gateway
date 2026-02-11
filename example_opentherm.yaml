@@ -68,6 +68,10 @@ web_server:
 # Real sensors are defined below in opentherm component
 binary_sensor:
 sensor:
+#  # Optional external room temperature source for room_climate
+#  - platform: homeassistant
+#    id: living_room_temp
+#    entity_id: sensor.living_room_temperature
 climate:
 
 # OpenTherm component configuration
@@ -124,6 +128,14 @@ opentherm:
   heating_target_temperature:
     name: "${friendly_name} Heating Target"
     id: heating_target
+
+  room_temperature:
+    name: "${friendly_name} Room Temperature"
+    id: room_temp
+
+  room_setpoint:
+    name: "${friendly_name} Room Setpoint"
+    id: room_setpoint
   
   # Climate controls
   hot_water_climate:
@@ -133,6 +145,12 @@ opentherm:
   heating_water_climate:
     name: "${friendly_name} Central Heating"
     id: central_heating
+
+  room_climate:
+    name: "${friendly_name} Room Climate"
+    id: room_climate
+    # Optional: prefer external sensor over OpenTherm Tr for current_temperature
+    # current_temperature_sensor: living_room_temp
 
 # Add buttons
 button:
@@ -146,4 +164,3 @@ button:
     name: "${friendly_name} Reset Boiler"
     id: reset_boiler_button
     icon: "mdi:restart-alert"
-

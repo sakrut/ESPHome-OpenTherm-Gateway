@@ -33,8 +33,12 @@ CONF_BOILER_TEMPERATURE = "boiler_temperature"
 CONF_PRESSURE = "pressure"
 CONF_MODULATION = "modulation"
 CONF_HEATING_TARGET_TEMPERATURE = "heating_target_temperature"
+CONF_ROOM_TEMPERATURE = "room_temperature"
+CONF_ROOM_SETPOINT = "room_setpoint"
 CONF_HOT_WATER_CLIMATE = "hot_water_climate"
 CONF_HEATING_WATER_CLIMATE = "heating_water_climate"
+CONF_ROOM_CLIMATE = "room_climate"
+CONF_CURRENT_TEMPERATURE_SENSOR = "current_temperature_sensor"
 CONF_IN_PIN = "in_pin"
 CONF_OUT_PIN = "out_pin"
 CONF_SLAVE_IN_PIN = "slave_in_pin"
@@ -105,6 +109,18 @@ CONFIG_SCHEMA = cv.Schema({
         device_class=DEVICE_CLASS_TEMPERATURE,
         state_class=STATE_CLASS_MEASUREMENT,
     ),
+    cv.Optional(CONF_ROOM_TEMPERATURE): sensor.sensor_schema(
+        unit_of_measurement=UNIT_CELSIUS,
+        accuracy_decimals=1,
+        device_class=DEVICE_CLASS_TEMPERATURE,
+        state_class=STATE_CLASS_MEASUREMENT,
+    ),
+    cv.Optional(CONF_ROOM_SETPOINT): sensor.sensor_schema(
+        unit_of_measurement=UNIT_CELSIUS,
+        accuracy_decimals=1,
+        device_class=DEVICE_CLASS_TEMPERATURE,
+        state_class=STATE_CLASS_MEASUREMENT,
+    ),
     # Phase 1 sensors - Boiler limits and diagnostics
     cv.Optional(CONF_MAX_CH_SETPOINT): sensor.sensor_schema(
         unit_of_measurement=UNIT_CELSIUS,
@@ -154,6 +170,11 @@ CONFIG_SCHEMA = cv.Schema({
     cv.Optional(CONF_HEATING_WATER_CLIMATE): climate.climate_schema(
         OpenthermClimate,
     ),
+    cv.Optional(CONF_ROOM_CLIMATE): climate.climate_schema(
+        OpenthermClimate,
+    ).extend({
+        cv.Optional(CONF_CURRENT_TEMPERATURE_SENSOR): cv.use_id(sensor.Sensor),
+    }),
 }).extend(cv.COMPONENT_SCHEMA)
 
 
@@ -192,6 +213,14 @@ async def to_code(config):
     if CONF_HEATING_TARGET_TEMPERATURE in config:
         sens = await sensor.new_sensor(config[CONF_HEATING_TARGET_TEMPERATURE])
         cg.add(var.set_heating_target_temperature_sensor(sens))
+    
+    if CONF_ROOM_TEMPERATURE in config:
+        sens = await sensor.new_sensor(config[CONF_ROOM_TEMPERATURE])
+        cg.add(var.set_room_temperature_sensor(sens))
+
+    if CONF_ROOM_SETPOINT in config:
+        sens = await sensor.new_sensor(config[CONF_ROOM_SETPOINT])
+        cg.add(var.set_room_setpoint_sensor(sens))
 
     # Phase 1 sensors
     if CONF_MAX_CH_SETPOINT in config:
@@ -259,6 +288,18 @@ async def to_code(config):
         await climate.register_climate(heating_var, heating_conf)
         cg.add(heating_var.set_climate_type(ClimateType.HEATING_WATER))
         cg.add(var.register_climate(heating_var))
+
+    if CONF_ROOM_CLIMATE in config:
+        room_conf = config[CONF_ROOM_CLIMATE]
+        room_var = cg.new_Pvariable(room_conf[CONF_ID])
+        await cg.register_component(room_var, room_conf)
+        await climate.register_climate(room_var, room_conf)
+        cg.add(room_var.set_climate_type(ClimateType.ROOM))
+        cg.add(room_var.set_read_only(True))
+        cg.add(var.register_climate(room_var))
+        if CONF_CURRENT_TEMPERATURE_SENSOR in room_conf:
+            ext_sensor = await cg.get_variable(room_conf[CONF_CURRENT_TEMPERATURE_SENSOR])
+            cg.add(var.set_room_climate_external_sensor(ext_sensor))
     
     # Add library dependencies
     cg.add_library("ihormelnyk/OpenTherm Library", "1.1.4")

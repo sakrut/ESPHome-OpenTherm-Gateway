@@ -163,6 +163,10 @@ namespace esphome
 
       if (heating_target_temperature_sensor_ != nullptr && !std::isnan(heating_target_temp) && heating_target_temp > 0)
         heating_target_temperature_sensor_->publish_state(heating_target_temp);
+      if (room_temperature_sensor_ != nullptr && !std::isnan(cached_room_temp_.value))
+        room_temperature_sensor_->publish_state(cached_room_temp_.value);
+      if (room_setpoint_sensor_ != nullptr && !std::isnan(cached_room_setpoint_.value))
+        room_setpoint_sensor_->publish_state(cached_room_setpoint_.value);
 
       // Read OEM diagnostic codes (Data-ID 5 and 115) - only if fault or diagnostic active
       if (is_fault || is_diagnostic)
@@ -225,6 +229,26 @@ namespace esphome
         heating_water_climate_->initialize_target_temperature(heating_target_temp);
         heating_water_climate_->publish_state();
       }
+
+      if (room_climate_ != nullptr)
+      {
+        float room_temperature = NAN;
+        if (room_climate_external_sensor_ != nullptr && room_climate_external_sensor_->has_state())
+        {
+          room_temperature = room_climate_external_sensor_->state;
+        }
+        else if (!std::isnan(cached_room_temp_.value))
+        {
+          room_temperature = cached_room_temp_.value;
+        }
+
+        if (!std::isnan(room_temperature))
+          room_climate_->current_temperature = room_temperature;
+        if (!std::isnan(cached_room_setpoint_.value))
+          room_climate_->target_temperature = cached_room_setpoint_.value;
+        room_climate_->action = is_central_heating_active ? climate::CLIMATE_ACTION_HEATING : climate::CLIMATE_ACTION_OFF;
+        room_climate_->publish_state();
+      }
     }
 
     void OpenthermComponent::register_climate(OpenthermClimate *climate)
@@ -238,6 +262,10 @@ namespace esphome
       else if (type == ClimateType::HEATING_WATER)
       {
         heating_water_climate_ = climate;
+      }
+      else if (type == ClimateType::ROOM)
+      {
+        room_climate_ = climate;
       }
     }
 
@@ -268,8 +296,12 @@ namespace esphome
 
     float OpenthermComponent::getRoomTemperature()
     {
-      unsigned long response = ot_->sendRequest(ot_->buildRequest(OpenThermRequestType::READ, OpenThermMessageID::Tr, 0));
-      return ot_->isValidResponse(response) ? ot_->getFloat(response) : NAN;
+      return cached_room_temp_.value;
+    }
+
+    float OpenthermComponent::getRoomSetpoint()
+    {
+      return cached_room_setpoint_.value;
     }
 
     bool OpenthermComponent::setTemperatureWithVerification(
@@ -468,6 +500,18 @@ namespace esphome
           ESP_LOGV(TAG, "Cached DHW target: %.1f°C", cached_dhw_target_.value);
           break;
 
+        case OpenThermMessageID::Tr:
+          cached_room_temp_.value = ot_->getFloat(response);
+          cached_room_temp_.last_update = now;
+          ESP_LOGV(TAG, "Cached room temp: %.1f°C", cached_room_temp_.value);
+          break;
+
+        case OpenThermMessageID::TrSet:
+          cached_room_setpoint_.value = ot_->getFloat(response);
+          cached_room_setpoint_.last_update = now;
+          ESP_LOGV(TAG, "Cached room setpoint: %.1f°C", cached_room_setpoint_.value);
+          break;
+
         case OpenThermMessageID::Status:
           // Already handled in processRequest for immediate binary sensor updates
           ESP_LOGD(TAG, "Updated status response: %lu", response);
@@ -577,24 +621,24 @@ namespace esphome
 
       if (ot_->isValidResponse(response))
       {
+        OpenThermMessageType resp_type = ot_->getMessageType(response);
+
         // Extract full response data
         uint16_t response_data = response & 0xFFFF;
         uint8_t high_byte = (response_data >> 8) & 0xFF;
         uint8_t low_byte = response_data & 0xFF;
 
-        ESP_LOGD(TAG, "BLOR response data: HB=0x%02X (%d), LB=0x%02X (%d)",
-                 high_byte, high_byte, low_byte, low_byte);
+        ESP_LOGD(TAG, "BLOR response data: HB=0x%02X (%d), LB=0x%02X (%d), type=%d",
+                 high_byte, high_byte, low_byte, low_byte, static_cast<int>(resp_type));
 
-        // Check if command was accepted (response code in LB should be >= 128 for success)
-        // Or check HB for echo of command code
-        if (low_byte >= 128 || high_byte == 1)
+        if (resp_type == OpenThermMessageType::WRITE_ACK)
         {
-          ESP_LOGI(TAG, "Boiler reset command completed successfully (HB=%d, LB=%d)", high_byte, low_byte);
+          ESP_LOGI(TAG, "Boiler reset command acknowledged (WRITE-ACK)");
           return true;
         }
         else
         {
-          ESP_LOGW(TAG, "Boiler reset command failed or not supported (HB=%d, LB=%d)", high_byte, low_byte);
+          ESP_LOGW(TAG, "BLOR unexpected response type: %d", static_cast<int>(resp_type));
           return false;
         }
       }
