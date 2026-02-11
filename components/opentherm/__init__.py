@@ -38,6 +38,7 @@ CONF_ROOM_SETPOINT = "room_setpoint"
 CONF_HOT_WATER_CLIMATE = "hot_water_climate"
 CONF_HEATING_WATER_CLIMATE = "heating_water_climate"
 CONF_ROOM_CLIMATE = "room_climate"
+CONF_CURRENT_TEMPERATURE_SENSOR = "current_temperature_sensor"
 CONF_IN_PIN = "in_pin"
 CONF_OUT_PIN = "out_pin"
 CONF_SLAVE_IN_PIN = "slave_in_pin"
@@ -171,7 +172,9 @@ CONFIG_SCHEMA = cv.Schema({
     ),
     cv.Optional(CONF_ROOM_CLIMATE): climate.climate_schema(
         OpenthermClimate,
-    ),
+    ).extend({
+        cv.Optional(CONF_CURRENT_TEMPERATURE_SENSOR): cv.use_id(sensor.Sensor),
+    }),
 }).extend(cv.COMPONENT_SCHEMA)
 
 
@@ -294,6 +297,9 @@ async def to_code(config):
         cg.add(room_var.set_climate_type(ClimateType.ROOM))
         cg.add(room_var.set_read_only(True))
         cg.add(var.register_climate(room_var))
+        if CONF_CURRENT_TEMPERATURE_SENSOR in room_conf:
+            ext_sensor = await cg.get_variable(room_conf[CONF_CURRENT_TEMPERATURE_SENSOR])
+            cg.add(var.set_room_climate_external_sensor(ext_sensor))
     
     # Add library dependencies
     cg.add_library("ihormelnyk/OpenTherm Library", "1.1.4")

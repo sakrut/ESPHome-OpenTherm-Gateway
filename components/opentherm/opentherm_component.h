@@ -49,6 +49,7 @@ namespace esphome
       void set_heating_target_temperature_sensor(sensor::Sensor *sensor) { heating_target_temperature_sensor_ = sensor; }
       void set_room_temperature_sensor(sensor::Sensor *sensor) { room_temperature_sensor_ = sensor; }
       void set_room_setpoint_sensor(sensor::Sensor *sensor) { room_setpoint_sensor_ = sensor; }
+      void set_room_climate_external_sensor(sensor::Sensor *sensor) { room_climate_external_sensor_ = sensor; }
 
       // Phase 1 sensor setters
       void set_max_ch_setpoint_sensor(sensor::Sensor *sensor) { max_ch_setpoint_sensor_ = sensor; }
@@ -110,6 +111,7 @@ namespace esphome
       sensor::Sensor *heating_target_temperature_sensor_{nullptr};
       sensor::Sensor *room_temperature_sensor_{nullptr};
       sensor::Sensor *room_setpoint_sensor_{nullptr};
+      sensor::Sensor *room_climate_external_sensor_{nullptr};
 
       // Phase 1 sensors
       sensor::Sensor *max_ch_setpoint_sensor_{nullptr};

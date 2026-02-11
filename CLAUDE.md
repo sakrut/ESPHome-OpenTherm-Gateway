@@ -136,6 +136,8 @@ Default pins match NodeMCU/ESP8266 layout:
   - If cache expires (no request from thermostat for >1 minute), gateway requests it directly
   - **WRITE-DATA caching**: The component also caches WRITE requests (e.g., when thermostat sets TSet) to capture setpoint changes
 - **Immediate feedback**: When setting temperatures via climate entities, the component verifies the setpoint immediately and updates the UI
+- **Room climate (read-only)**: `room_climate` displays room data; `target_temperature` follows intercepted thermostat TrSet
+- **External room source**: `room_climate.current_temperature_sensor` can override `current_temperature` (fallback to intercepted Tr)
 
 ### Phase 1 Features - Boiler Limits & Diagnostics
 
@@ -201,6 +203,7 @@ button:
 ```
 
 The button sends a WRITE-DATA command with Data ID 4 (Command) and Command-Code 1 (BLOR) as per OpenTherm Protocol Specification section 5.3.3.
+BLOR success should be treated as an OpenTherm `WRITE_ACK` response type.
 
 ## Testing Configuration
 
