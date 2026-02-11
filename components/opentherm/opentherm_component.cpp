@@ -163,6 +163,10 @@ namespace esphome
 
       if (heating_target_temperature_sensor_ != nullptr && !std::isnan(heating_target_temp) && heating_target_temp > 0)
         heating_target_temperature_sensor_->publish_state(heating_target_temp);
+      if (room_temperature_sensor_ != nullptr && !std::isnan(cached_room_temp_.value))
+        room_temperature_sensor_->publish_state(cached_room_temp_.value);
+      if (room_setpoint_sensor_ != nullptr && !std::isnan(cached_room_setpoint_.value))
+        room_setpoint_sensor_->publish_state(cached_room_setpoint_.value);
 
       // Read OEM diagnostic codes (Data-ID 5 and 115) - only if fault or diagnostic active
       if (is_fault || is_diagnostic)
@@ -225,6 +229,16 @@ namespace esphome
         heating_water_climate_->initialize_target_temperature(heating_target_temp);
         heating_water_climate_->publish_state();
       }
+
+      if (room_climate_ != nullptr)
+      {
+        if (!std::isnan(cached_room_temp_.value))
+          room_climate_->current_temperature = cached_room_temp_.value;
+        if (!std::isnan(cached_room_setpoint_.value))
+          room_climate_->target_temperature = cached_room_setpoint_.value;
+        room_climate_->action = is_central_heating_active ? climate::CLIMATE_ACTION_HEATING : climate::CLIMATE_ACTION_OFF;
+        room_climate_->publish_state();
+      }
     }
 
     void OpenthermComponent::register_climate(OpenthermClimate *climate)
@@ -238,6 +252,10 @@ namespace esphome
       else if (type == ClimateType::HEATING_WATER)
       {
         heating_water_climate_ = climate;
+      }
+      else if (type == ClimateType::ROOM)
+      {
+        room_climate_ = climate;
       }
     }
 
@@ -268,8 +286,12 @@ namespace esphome
 
     float OpenthermComponent::getRoomTemperature()
     {
-      unsigned long response = ot_->sendRequest(ot_->buildRequest(OpenThermRequestType::READ, OpenThermMessageID::Tr, 0));
-      return ot_->isValidResponse(response) ? ot_->getFloat(response) : NAN;
+      return cached_room_temp_.value;
+    }
+
+    float OpenthermComponent::getRoomSetpoint()
+    {
+      return cached_room_setpoint_.value;
     }
 
     bool OpenthermComponent::setTemperatureWithVerification(
@@ -466,6 +488,18 @@ namespace esphome
           cached_dhw_target_.value = ot_->getFloat(response);
           cached_dhw_target_.last_update = now;
           ESP_LOGV(TAG, "Cached DHW target: %.1f°C", cached_dhw_target_.value);
+          break;
+
+        case OpenThermMessageID::Tr:
+          cached_room_temp_.value = ot_->getFloat(response);
+          cached_room_temp_.last_update = now;
+          ESP_LOGV(TAG, "Cached room temp: %.1f°C", cached_room_temp_.value);
+          break;
+
+        case OpenThermMessageID::TrSet:
+          cached_room_setpoint_.value = ot_->getFloat(response);
+          cached_room_setpoint_.last_update = now;
+          ESP_LOGV(TAG, "Cached room setpoint: %.1f°C", cached_room_setpoint_.value);
           break;
 
         case OpenThermMessageID::Status:

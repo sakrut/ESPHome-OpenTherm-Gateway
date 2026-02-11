@@ -447,3 +447,6 @@ Example log output:
 ```
 
 Implementation in [opentherm_component.cpp](components/opentherm/opentherm_component.cpp#L177-L265) `setTemperatureWithVerification()` helper.
+
+
+IMPORTANT: Whenever you modify, remove, or add anything described in this file, you must update all related sections to ensure full consistency with the changes. No change should exist in isolation—every dependent reference, rule, or description must be aligned accordingly.
