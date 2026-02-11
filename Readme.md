@@ -229,6 +229,7 @@ Look for:
 ## Documentation
 
 - [`example_opentherm.yaml`](example_opentherm.yaml) - Complete config
+- [`docs/upgrade-2.1.0.md`](docs/upgrade-2.1.0.md) - Upgrade from `2.0.0` to `2.1.0` and new config options
 - [`CLAUDE.md`](CLAUDE.md) - Architecture & development guide
 - [OpenTherm Protocol v2.2](doc/Opentherm%20Protocol%20v2-2.pdf) - Full spec
 
