@@ -18,6 +18,7 @@ CODEOWNERS = ["@yourusername"]
 CONF_EXTERNAL_TEMPERATURE = "external_temperature"
 CONF_RETURN_TEMPERATURE = "return_temperature"
 CONF_BOILER_TEMPERATURE = "boiler_temperature"
+CONF_EXHAUST_TEMPERATURE = "exhaust_temperature"
 CONF_PRESSURE = "pressure"
 CONF_MODULATION = "modulation"
 CONF_HEATING_TARGET_TEMPERATURE = "heating_target_temperature"
@@ -39,6 +40,12 @@ CONFIG_SCHEMA = cv.Schema({
     cv.Optional(CONF_BOILER_TEMPERATURE): sensor.sensor_schema(
         unit_of_measurement=UNIT_CELSIUS,
         accuracy_decimals=1,
+        device_class=DEVICE_CLASS_TEMPERATURE,
+        state_class=STATE_CLASS_MEASUREMENT,
+    ),
+    cv.Optional(CONF_EXHAUST_TEMPERATURE): sensor.sensor_schema(
+        unit_of_measurement=UNIT_CELSIUS,
+        accuracy_decimals=0,
         device_class=DEVICE_CLASS_TEMPERATURE,
         state_class=STATE_CLASS_MEASUREMENT,
     ),
@@ -76,6 +83,10 @@ async def to_code(config):
     if CONF_BOILER_TEMPERATURE in config:
         sens = await sensor.new_sensor(config[CONF_BOILER_TEMPERATURE])
         cg.add(hub.set_boiler_temperature_sensor(sens))
+
+    if CONF_EXHAUST_TEMPERATURE in config:
+        sens = await sensor.new_sensor(config[CONF_EXHAUST_TEMPERATURE])
+        cg.add(hub.set_exhaust_temperature_sensor(sens))
     
     if CONF_PRESSURE in config:
         sens = await sensor.new_sensor(config[CONF_PRESSURE])

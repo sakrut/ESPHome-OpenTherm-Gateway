@@ -20,6 +20,14 @@ namespace esphome
       instance_ = this;
     }
 
+    void OpenthermComponent::add_read_sensor(sensor::Sensor *sensor, uint8_t message_id)
+    {
+      GenericReadSensor read_sensor;
+      read_sensor.sensor = sensor;
+      read_sensor.id = static_cast<OpenThermMessageID>(message_id);
+      read_sensors_.push_back(read_sensor);
+    }
+
     void OpenthermComponent::setup()
     {
       ESP_LOGD(TAG, "Setting up OpenTherm component");
@@ -141,6 +149,9 @@ namespace esphome
       float ext_temperature = getExternalTemperature();
       float return_temperature = getReturnTemperature();
       float boiler_temperature = getCachedOrFetch(cached_boiler_temp_, OpenThermMessageID::Tboiler);
+      float exhaust_temperature = exhaust_temperature_sensor_ != nullptr
+                                      ? getCachedOrFetch(cached_exhaust_temp_, OpenThermMessageID::Texhaust)
+                                      : NAN;
       float pressure = getPressure();
       float modulation = getModulation();
       float heating_target_temp = getHeatingTargetTemperature();
@@ -155,6 +166,9 @@ namespace esphome
       if (boiler_temperature_ != nullptr && !std::isnan(boiler_temperature))
         boiler_temperature_->publish_state(boiler_temperature);
 
+      if (exhaust_temperature_sensor_ != nullptr && !std::isnan(exhaust_temperature))
+        exhaust_temperature_sensor_->publish_state(exhaust_temperature);
+
       if (pressure_sensor_ != nullptr && !std::isnan(pressure))
         pressure_sensor_->publish_state(pressure);
 
@@ -167,6 +181,16 @@ namespace esphome
         room_temperature_sensor_->publish_state(cached_room_temp_.value);
       if (room_setpoint_sensor_ != nullptr && !std::isnan(cached_room_setpoint_.value))
         room_setpoint_sensor_->publish_state(cached_room_setpoint_.value);
+
+      for (auto &read_sensor : read_sensors_)
+      {
+        if (read_sensor.sensor == nullptr)
+          continue;
+
+        float value = readGenericSensorValue(read_sensor);
+        if (!std::isnan(value))
+          read_sensor.sensor->publish_state(value);
+      }
 
       // Read OEM diagnostic codes (Data-ID 5 and 115) - only if fault or diagnostic active
       if (is_fault || is_diagnostic)
@@ -449,78 +473,147 @@ namespace esphome
     {
       // This runs in loop(), not interrupt context - safe to do complex operations
       unsigned long now = millis();
+      const CachedMessageSpec *spec = cachedMessageSpec(id);
 
-      switch (id)
+      if (spec != nullptr)
       {
-        case OpenThermMessageID::Toutside:
-          cached_external_temp_.value = ot_->getFloat(response);
-          cached_external_temp_.last_update = now;
-          ESP_LOGV(TAG, "Cached external temp: %.1f°C", cached_external_temp_.value);
-          break;
+        CachedValue &cache = this->*(spec->cache);
+        cache.value = decodeMessageValue(response, id);
+        cache.last_update = now;
+        ESP_LOGV(TAG, "Cached %s (msg_id %d): %.2f", spec->log_name, static_cast<int>(id), cache.value);
+        return;
+      }
 
-        case OpenThermMessageID::Tret:
-          cached_return_temp_.value = ot_->getFloat(response);
-          cached_return_temp_.last_update = now;
-          ESP_LOGV(TAG, "Cached return temp: %.1f°C", cached_return_temp_.value);
-          break;
+      if (id == OpenThermMessageID::Status)
+      {
+        // Already handled in processRequest for immediate binary sensor updates
+        ESP_LOGD(TAG, "Updated status response: %lu", response);
+      }
+    }
 
-        case OpenThermMessageID::Tboiler:
-          cached_boiler_temp_.value = ot_->getFloat(response);
-          cached_boiler_temp_.last_update = now;
-          ESP_LOGV(TAG, "Cached boiler temp: %.1f°C", cached_boiler_temp_.value);
-          break;
+    float OpenthermComponent::decodeMessageValue(unsigned long response, OpenThermMessageID id)
+    {
+      switch (valueEncodingForMessage(id))
+      {
+        case ValueEncoding::S16:
+          return static_cast<float>(static_cast<int16_t>(ot_->getUInt(response)));
 
-        case OpenThermMessageID::CHPressure:
-          cached_pressure_.value = ot_->getFloat(response);
-          cached_pressure_.last_update = now;
-          ESP_LOGV(TAG, "Cached pressure: %.1f bar", cached_pressure_.value);
-          break;
+        case ValueEncoding::U16:
+        case ValueEncoding::RAW:
+          return static_cast<float>(ot_->getUInt(response));
 
-        case OpenThermMessageID::RelModLevel:
-          cached_modulation_.value = ot_->getFloat(response);
-          cached_modulation_.last_update = now;
-          ESP_LOGV(TAG, "Cached modulation: %.1f%%", cached_modulation_.value);
-          break;
+        case ValueEncoding::F88:
+        default:
+          return ot_->getFloat(response);
+      }
+    }
 
-        case OpenThermMessageID::TSet:
-          cached_heating_target_.value = ot_->getFloat(response);
-          cached_heating_target_.last_update = now;
-          ESP_LOGV(TAG, "Cached heating target: %.1f°C", cached_heating_target_.value);
-          break;
+    OpenthermComponent::ValueEncoding OpenthermComponent::valueEncodingForMessage(OpenThermMessageID id) const
+    {
+      switch (static_cast<uint8_t>(id))
+      {
+        case 0:   // Status: flag8/flag8
+        case 2:   // MConfigMMemberIDcode: flag8/u8
+        case 3:   // SConfigSMemberIDcode: flag8/u8
+        case 4:   // RemoteRequest: u8/u8
+        case 5:   // ASFflags: flag8/u8
+        case 6:   // RBPflags: flag8/flag8
+        case 10:  // TSP: u8/u8
+        case 11:  // TSPindexTSPvalue: u8/u8
+        case 12:  // FHBsize: u8/u8
+        case 13:  // FHBindexFHBvalue: u8/u8
+        case 15:  // MaxCapacityMinModLevel: u8/u8
+        case 20:  // DayTime: special/u8
+        case 21:  // Date: u8/u8
+        case 35:  // BoilerFanSpeedSetpointAndActual: u8/u8
+        case 48:  // TdhwSetUBTdhwSetLB: s8/s8
+        case 49:  // MaxTSetUBMaxTSetLB: s8/s8
+        case 70:  // StatusVentilationHeatRecovery: flag8/flag8
+        case 72:  // ASFflagsOEMfaultCodeVentilationHeatRecovery: flag8/u8
+        case 74:  // SConfigSMemberIDCodeVentilationHeatRecovery: flag8/u8
+        case 76:  // VentilationHeatRecoveryVersion: u8/u8
+        case 86:  // RBPflagsVentilationHeatRecovery: flag8/flag8
+        case 87:  // NominalVentilationValue: u8/-
+        case 88:  // TSPventilationHeatRecovery: u8/u8
+        case 89:  // TSPindexTSPvalueVentilationHeatRecovery: u8/u8
+        case 90:  // FHBsizeVentilationHeatRecovery: u8/u8
+        case 91:  // FHBindexFHBvalueVentilationHeatRecovery: u8/u8
+        case 93:  // Brand: u8/u8
+        case 94:  // BrandVersion: u8/u8
+        case 95:  // BrandSerialNumber: u8/u8
+        case 98:  // RFsensorStatusInformation: special/special
+        case 99:  // RemoteOverrideOperatingModeHeatingDHW: special/special
+        case 100: // RemoteOverrideFunction: flag8/-
+        case 101: // StatusSolarStorage: flag8/flag8
+        case 102: // ASFflagsOEMfaultCodeSolarStorage: flag8/u8
+        case 103: // SConfigSMemberIDcodeSolarStorage: flag8/u8
+        case 104: // SolarStorageVersion: u8/u8
+        case 105: // TSPSolarStorage: u8/u8
+        case 106: // TSPindexTSPvalueSolarStorage: u8/u8
+        case 107: // FHBsizeSolarStorage: u8/u8
+        case 108: // FHBindexFHBvalueSolarStorage: u8/u8
+        case 126: // MasterVersion: u8/u8
+        case 127: // SlaveVersion: u8/u8
+          return ValueEncoding::RAW;
 
-        case OpenThermMessageID::Tdhw:
-          cached_dhw_temp_.value = ot_->getFloat(response);
-          cached_dhw_temp_.last_update = now;
-          ESP_LOGV(TAG, "Cached DHW temp: %.1f°C", cached_dhw_temp_.value);
-          break;
+        case 33: // Texhaust: s16
+          return ValueEncoding::S16;
 
-        case OpenThermMessageID::TdhwSet:
-          cached_dhw_target_.value = ot_->getFloat(response);
-          cached_dhw_target_.last_update = now;
-          ESP_LOGV(TAG, "Cached DHW target: %.1f°C", cached_dhw_target_.value);
-          break;
-
-        case OpenThermMessageID::Tr:
-          cached_room_temp_.value = ot_->getFloat(response);
-          cached_room_temp_.last_update = now;
-          ESP_LOGV(TAG, "Cached room temp: %.1f°C", cached_room_temp_.value);
-          break;
-
-        case OpenThermMessageID::TrSet:
-          cached_room_setpoint_.value = ot_->getFloat(response);
-          cached_room_setpoint_.last_update = now;
-          ESP_LOGV(TAG, "Cached room setpoint: %.1f°C", cached_room_setpoint_.value);
-          break;
-
-        case OpenThermMessageID::Status:
-          // Already handled in processRequest for immediate binary sensor updates
-          ESP_LOGD(TAG, "Updated status response: %lu", response);
-          break;
+        case 71: // Vset: -/u8
+        case 77: // RelVentLevel: -/u8
+        case 78: // RHexhaust: -/u8
+        case 22:  // Year
+        case 73:  // OEMDiagnosticCodeVentilationHeatRecovery
+        case 79:  // CO2exhaust
+        case 84:  // RPMexhaust
+        case 85:  // RPMsupply
+        case 96:  // CoolingOperationHours
+        case 97:  // PowerCycles
+        case 109: // ElectricityProducerStarts
+        case 110: // ElectricityProducerHours
+        case 111: // ElectricityProduction
+        case 112: // CumulativElectricityProduction
+        case 113: // UnsuccessfulBurnerStarts
+        case 114: // FlameSignalTooLowNumber
+        case 115: // OEMDiagnosticCode
+        case 116: // SuccessfulBurnerStarts
+        case 117: // CHPumpStarts
+        case 118: // DHWPumpValveStarts
+        case 119: // DHWBurnerStarts
+        case 120: // BurnerOperationHours
+        case 121: // CHPumpOperationHours
+        case 122: // DHWPumpValveOperationHours
+        case 123: // DHWBurnerOperationHours
+          return ValueEncoding::U16;
 
         default:
-          // Other message IDs not cached
-          break;
+          return ValueEncoding::F88;
       }
+    }
+
+    const OpenthermComponent::CachedMessageSpec *OpenthermComponent::cachedMessageSpec(OpenThermMessageID id) const
+    {
+      static const CachedMessageSpec specs[] = {
+          {OpenThermMessageID::Toutside, &OpenthermComponent::cached_external_temp_, "external temp"},
+          {OpenThermMessageID::Tret, &OpenthermComponent::cached_return_temp_, "return temp"},
+          {OpenThermMessageID::Tboiler, &OpenthermComponent::cached_boiler_temp_, "boiler temp"},
+          {OpenThermMessageID::Texhaust, &OpenthermComponent::cached_exhaust_temp_, "exhaust temp"},
+          {OpenThermMessageID::CHPressure, &OpenthermComponent::cached_pressure_, "pressure"},
+          {OpenThermMessageID::RelModLevel, &OpenthermComponent::cached_modulation_, "modulation"},
+          {OpenThermMessageID::TSet, &OpenthermComponent::cached_heating_target_, "heating target"},
+          {OpenThermMessageID::Tdhw, &OpenthermComponent::cached_dhw_temp_, "DHW temp"},
+          {OpenThermMessageID::TdhwSet, &OpenthermComponent::cached_dhw_target_, "DHW target"},
+          {OpenThermMessageID::Tr, &OpenthermComponent::cached_room_temp_, "room temp"},
+          {OpenThermMessageID::TrSet, &OpenthermComponent::cached_room_setpoint_, "room setpoint"},
+      };
+
+      for (const auto &spec : specs)
+      {
+        if (spec.id == id)
+          return &spec;
+      }
+
+      return nullptr;
     }
 
     float OpenthermComponent::getCachedOrFetch(CachedValue &cache, OpenThermMessageID msg_id)
@@ -535,7 +628,7 @@ namespace esphome
 
         if (ot_->isValidResponse(response))
         {
-          cache.value = ot_->getFloat(response);
+          cache.value = decodeMessageValue(response, msg_id);
           cache.last_update = now;
           ESP_LOGV(TAG, "First fetch for msg_id %d: %.2f", static_cast<int>(msg_id), cache.value);
           return cache.value;
@@ -574,7 +667,7 @@ namespace esphome
 
       if (ot_->isValidResponse(response))
       {
-        cache.value = ot_->getFloat(response);
+        cache.value = decodeMessageValue(response, msg_id);
         cache.last_update = now;
         ESP_LOGV(TAG, "Fetched value for msg_id %d: %.2f", static_cast<int>(msg_id), cache.value);
         return cache.value;
@@ -587,6 +680,21 @@ namespace esphome
       }
 
       return cache.value; // Return stale value or NAN
+    }
+
+    float OpenthermComponent::readGenericSensorValue(GenericReadSensor &read_sensor)
+    {
+      if (read_sensor.id == OpenThermMessageID::Status)
+      {
+        if (last_status_response_ == 0)
+          return NAN;
+
+        read_sensor.cache.value = decodeMessageValue(last_status_response_, read_sensor.id);
+        read_sensor.cache.last_update = millis();
+        return read_sensor.cache.value;
+      }
+
+      return getCachedOrFetch(read_sensor.cache, read_sensor.id);
     }
 
     void IRAM_ATTR OpenthermComponent::handleInterrupt()

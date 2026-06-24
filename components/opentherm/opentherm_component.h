@@ -5,6 +5,7 @@
 #include "esphome/components/binary_sensor/binary_sensor.h"
 #include "OpenTherm.h"
 #include "opentherm_climate.h"
+#include <vector>
 
 namespace esphome
 {
@@ -44,12 +45,14 @@ namespace esphome
       void set_external_temperature_sensor(sensor::Sensor *sensor) { external_temperature_sensor_ = sensor; }
       void set_return_temperature_sensor(sensor::Sensor *sensor) { return_temperature_sensor_ = sensor; }
       void set_boiler_temperature_sensor(sensor::Sensor *sensor) { boiler_temperature_ = sensor; }
+      void set_exhaust_temperature_sensor(sensor::Sensor *sensor) { exhaust_temperature_sensor_ = sensor; }
       void set_pressure_sensor(sensor::Sensor *sensor) { pressure_sensor_ = sensor; }
       void set_modulation_sensor(sensor::Sensor *sensor) { modulation_sensor_ = sensor; }
       void set_heating_target_temperature_sensor(sensor::Sensor *sensor) { heating_target_temperature_sensor_ = sensor; }
       void set_room_temperature_sensor(sensor::Sensor *sensor) { room_temperature_sensor_ = sensor; }
       void set_room_setpoint_sensor(sensor::Sensor *sensor) { room_setpoint_sensor_ = sensor; }
       void set_room_climate_external_sensor(sensor::Sensor *sensor) { room_climate_external_sensor_ = sensor; }
+      void add_read_sensor(sensor::Sensor *sensor, uint8_t message_id);
 
       // Phase 1 sensor setters
       void set_max_ch_setpoint_sensor(sensor::Sensor *sensor) { max_ch_setpoint_sensor_ = sensor; }
@@ -106,6 +109,7 @@ namespace esphome
       sensor::Sensor *external_temperature_sensor_{nullptr};
       sensor::Sensor *return_temperature_sensor_{nullptr};
       sensor::Sensor *boiler_temperature_{nullptr};
+      sensor::Sensor *exhaust_temperature_sensor_{nullptr};
       sensor::Sensor *pressure_sensor_{nullptr};
       sensor::Sensor *modulation_sensor_{nullptr};
       sensor::Sensor *heating_target_temperature_sensor_{nullptr};
@@ -148,9 +152,29 @@ namespace esphome
         unsigned long last_update{0};
       };
 
+      enum class ValueEncoding {
+        F88,
+        U16,
+        S16,
+        RAW,
+      };
+
+      struct CachedMessageSpec {
+        OpenThermMessageID id;
+        CachedValue OpenthermComponent::*cache;
+        const char *log_name;
+      };
+
+      struct GenericReadSensor {
+        sensor::Sensor *sensor{nullptr};
+        OpenThermMessageID id{static_cast<OpenThermMessageID>(0)};
+        CachedValue cache;
+      };
+
       CachedValue cached_external_temp_;
       CachedValue cached_return_temp_;
       CachedValue cached_boiler_temp_;
+      CachedValue cached_exhaust_temp_;
       CachedValue cached_pressure_;
       CachedValue cached_modulation_;
       CachedValue cached_heating_target_;
@@ -158,12 +182,17 @@ namespace esphome
       CachedValue cached_dhw_target_;
       CachedValue cached_room_temp_;
       CachedValue cached_room_setpoint_;
+      std::vector<GenericReadSensor> read_sensors_;
 
       const unsigned long CACHE_TIMEOUT_{60000};  // 1 minute in ms
       const unsigned long MIN_FETCH_INTERVAL_{5000};  // Minimum 5s between fetch requests for same sensor
 
       // Helper to get cached value or fetch if stale
       float getCachedOrFetch(CachedValue &cache, OpenThermMessageID msg_id);
+      float readGenericSensorValue(GenericReadSensor &read_sensor);
+      float decodeMessageValue(unsigned long response, OpenThermMessageID id);
+      ValueEncoding valueEncodingForMessage(OpenThermMessageID id) const;
+      const CachedMessageSpec *cachedMessageSpec(OpenThermMessageID id) const;
 
       // Process intercepted response (called from loop, not interrupt)
       void processCachedResponse(unsigned long response, OpenThermMessageID id);

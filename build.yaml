@@ -101,6 +101,10 @@ opentherm:
   boiler_temperature:
     name: "${friendly_name} Boiler Temperature"
     id: boiler_temp
+
+  exhaust_temperature:
+    name: "${friendly_name} Exhaust Temperature"
+    id: exhaust_temp
     
   pressure:
     name: "${friendly_name} System Pressure"
@@ -113,6 +117,24 @@ opentherm:
   heating_target_temperature:
     name: "${friendly_name} Heating Target"
     id: heating_target
+
+  read_sensors:
+    - message_id: 19
+      name: "${friendly_name} DHW Flow Rate"
+      unit_of_measurement: "L/min"
+      accuracy_decimals: 2
+      state_class: measurement
+
+    - message_id: 36
+      name: "${friendly_name} Flame Current"
+      unit_of_measurement: "uA"
+      accuracy_decimals: 2
+      state_class: measurement
+
+    - message_id: 97
+      name: "${friendly_name} Boiler Power Cycles"
+      accuracy_decimals: 0
+      state_class: total_increasing
   
   # Climate controls
   hot_water_climate:
