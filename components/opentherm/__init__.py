@@ -30,6 +30,7 @@ CONF_DIAGNOSTIC = "diagnostic"
 CONF_EXTERNAL_TEMPERATURE = "external_temperature"
 CONF_RETURN_TEMPERATURE = "return_temperature"
 CONF_BOILER_TEMPERATURE = "boiler_temperature"
+CONF_EXHAUST_TEMPERATURE = "exhaust_temperature"
 CONF_PRESSURE = "pressure"
 CONF_MODULATION = "modulation"
 CONF_HEATING_TARGET_TEMPERATURE = "heating_target_temperature"
@@ -39,6 +40,8 @@ CONF_HOT_WATER_CLIMATE = "hot_water_climate"
 CONF_HEATING_WATER_CLIMATE = "heating_water_climate"
 CONF_ROOM_CLIMATE = "room_climate"
 CONF_CURRENT_TEMPERATURE_SENSOR = "current_temperature_sensor"
+CONF_READ_SENSORS = "read_sensors"
+CONF_MESSAGE_ID = "message_id"
 CONF_IN_PIN = "in_pin"
 CONF_OUT_PIN = "out_pin"
 CONF_SLAVE_IN_PIN = "slave_in_pin"
@@ -92,6 +95,12 @@ CONFIG_SCHEMA = cv.Schema({
         device_class=DEVICE_CLASS_TEMPERATURE,
         state_class=STATE_CLASS_MEASUREMENT,
     ),
+    cv.Optional(CONF_EXHAUST_TEMPERATURE): sensor.sensor_schema(
+        unit_of_measurement=UNIT_CELSIUS,
+        accuracy_decimals=0,
+        device_class=DEVICE_CLASS_TEMPERATURE,
+        state_class=STATE_CLASS_MEASUREMENT,
+    ),
     cv.Optional(CONF_PRESSURE): sensor.sensor_schema(
         unit_of_measurement=UNIT_HECTOPASCAL,
         accuracy_decimals=2,
@@ -120,6 +129,14 @@ CONFIG_SCHEMA = cv.Schema({
         accuracy_decimals=1,
         device_class=DEVICE_CLASS_TEMPERATURE,
         state_class=STATE_CLASS_MEASUREMENT,
+    ),
+    cv.Optional(CONF_READ_SENSORS): cv.ensure_list(
+        sensor.sensor_schema(
+            accuracy_decimals=2,
+            state_class=STATE_CLASS_MEASUREMENT,
+        ).extend({
+            cv.Required(CONF_MESSAGE_ID): cv.int_range(min=0, max=255),
+        })
     ),
     # Phase 1 sensors - Boiler limits and diagnostics
     cv.Optional(CONF_MAX_CH_SETPOINT): sensor.sensor_schema(
@@ -201,6 +218,10 @@ async def to_code(config):
     if CONF_BOILER_TEMPERATURE in config:
         sens = await sensor.new_sensor(config[CONF_BOILER_TEMPERATURE])
         cg.add(var.set_boiler_temperature_sensor(sens))
+
+    if CONF_EXHAUST_TEMPERATURE in config:
+        sens = await sensor.new_sensor(config[CONF_EXHAUST_TEMPERATURE])
+        cg.add(var.set_exhaust_temperature_sensor(sens))
     
     if CONF_PRESSURE in config:
         sens = await sensor.new_sensor(config[CONF_PRESSURE])
@@ -221,6 +242,10 @@ async def to_code(config):
     if CONF_ROOM_SETPOINT in config:
         sens = await sensor.new_sensor(config[CONF_ROOM_SETPOINT])
         cg.add(var.set_room_setpoint_sensor(sens))
+
+    for read_sensor_conf in config.get(CONF_READ_SENSORS, []):
+        sens = await sensor.new_sensor(read_sensor_conf)
+        cg.add(var.add_read_sensor(sens, read_sensor_conf[CONF_MESSAGE_ID]))
 
     # Phase 1 sensors
     if CONF_MAX_CH_SETPOINT in config:

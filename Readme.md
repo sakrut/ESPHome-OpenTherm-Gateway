@@ -75,6 +75,8 @@ opentherm:
     name: "Return Temperature"
   boiler_temperature:
     name: "Boiler Temperature"
+  exhaust_temperature:
+    name: "Exhaust Temperature"
   heating_target_temperature:
     name: "Heating Target"  # What boiler actually uses
   room_temperature:
@@ -87,6 +89,28 @@ opentherm:
     name: "System Pressure"
   modulation:
     name: "Modulation Level"
+
+  # Generic OpenTherm read sensors.
+  # message_id is decoded automatically by the component.
+  # message_id 0 (Status) is read from intercepted traffic, not polled.
+  # More examples and full ID list: doc/read_sensors.md
+  read_sensors:
+    - message_id: 19
+      name: "DHW Flow Rate"
+      unit_of_measurement: "L/min"
+      accuracy_decimals: 2
+      state_class: measurement
+
+    - message_id: 36
+      name: "Flame Current"
+      unit_of_measurement: "uA"
+      accuracy_decimals: 2
+      state_class: measurement
+
+    - message_id: 97
+      name: "Boiler Power Cycles"
+      accuracy_decimals: 0
+      state_class: total_increasing
 
   # Diagnostics (read once at startup)
   max_ch_setpoint:
