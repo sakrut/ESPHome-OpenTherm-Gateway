@@ -1,0 +1,31 @@
+# Regression test for issue #17: hub-only config with no top-level
+# sensor/binary_sensor/climate/button sections must still compile.
+esphome:
+  name: opentherm-minimal-test
+
+esp8266:
+  board: nodemcuv2
+
+logger:
+
+opentherm:
+  id: opentherm_gateway
+  in_pin: 4
+  out_pin: 5
+  slave_in_pin: 12
+  slave_out_pin: 13
+
+  boiler_temperature:
+    name: "Boiler Temperature"
+
+  flame:
+    name: "Flame"
+
+  heating_water_climate:
+    name: "Central Heating Water"
+
+external_components:
+  - source:
+      type: local
+      path: ../../components
+    components: [ opentherm ]
