@@ -69,6 +69,8 @@ opentherm:
     name: "Boiler Temperature"
   exhaust_temperature:
     name: "Exhaust Temperature"
+  dropped_frames:
+    name: "Dropped Frames"  # Corrupt thermostat frames not forwarded to boiler
   heating_target_temperature:
     name: "Heating Target"  # What boiler actually uses
   room_temperature:
@@ -179,6 +181,8 @@ button:
 - Caches responses (60s timeout)
 - Only fetches when cache expires
 - Rate limiting (5s minimum between fetches)
+- Own reads are queued and sent between thermostat frames (never block the thermostat)
+- Corrupt thermostat frames (INVALID/TIMEOUT) are dropped, not forwarded, and counted in `dropped_frames`
 - **Result: ~80-90% less bus traffic**
 
 ## Troubleshooting

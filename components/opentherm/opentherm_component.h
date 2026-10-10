@@ -5,6 +5,7 @@
 #include "esphome/components/binary_sensor/binary_sensor.h"
 #include "OpenTherm.h"
 #include "opentherm_climate.h"
+#include <map>
 #include <vector>
 
 namespace esphome
@@ -62,6 +63,7 @@ namespace esphome
       void set_oem_diagnostic_code_sensor(sensor::Sensor *sensor) { oem_diagnostic_code_sensor_ = sensor; }
       void set_master_ot_version_sensor(sensor::Sensor *sensor) { master_ot_version_sensor_ = sensor; }
       void set_slave_ot_version_sensor(sensor::Sensor *sensor) { slave_ot_version_sensor_ = sensor; }
+      void set_dropped_frames_sensor(sensor::Sensor *sensor) { dropped_frames_sensor_ = sensor; }
 
       // Binary sensor setters
       void set_flame_sensor(binary_sensor::BinarySensor *sensor) { flame_ = sensor; }
@@ -125,6 +127,7 @@ namespace esphome
       sensor::Sensor *oem_diagnostic_code_sensor_{nullptr};
       sensor::Sensor *master_ot_version_sensor_{nullptr};
       sensor::Sensor *slave_ot_version_sensor_{nullptr};
+      sensor::Sensor *dropped_frames_sensor_{nullptr};
 
       // Binary Sensors
       binary_sensor::BinarySensor *flame_{nullptr};
@@ -184,11 +187,28 @@ namespace esphome
       CachedValue cached_room_setpoint_;
       std::vector<GenericReadSensor> read_sensors_;
 
+      // Gateway's own boiler reads, sent one at a time from loop() between thermostat frames
+      struct PendingFetch {
+        CachedValue *cache;
+        OpenThermMessageID id;
+      };
+      std::vector<PendingFetch> pending_fetches_;
+      unsigned long last_relay_ms_{0};
+
+      // Thermostat frames not forwarded because the library reported them INVALID or TIMEOUT
+      uint32_t dropped_frames_{0};
+      // Last data the thermostat wrote per data-id, to log unexpected writes
+      std::map<uint8_t, uint16_t> thermostat_writes_;
+
       const unsigned long CACHE_TIMEOUT_{60000};  // 1 minute in ms
       const unsigned long MIN_FETCH_INTERVAL_{5000};  // Minimum 5s between fetch requests for same sensor
+      const unsigned long FETCH_WINDOW_{200};  // Own reads start at most 200ms after a relayed thermostat frame
+      const unsigned long THERMOSTAT_SILENT_{3000};  // No thermostat traffic for 3s: read without waiting
 
-      // Helper to get cached value or fetch if stale
+      // Returns cached value; queues a boiler read if stale (sent later by fetchPendingValue)
       float getCachedOrFetch(CachedValue &cache, OpenThermMessageID msg_id);
+      void fetchPendingValue();
+      void logThermostatWrite(unsigned long request);
       float readGenericSensorValue(GenericReadSensor &read_sensor);
       float decodeMessageValue(unsigned long response, OpenThermMessageID id);
       ValueEncoding valueEncodingForMessage(OpenThermMessageID id) const;

@@ -117,6 +117,8 @@ namespace esphome
         processCachedResponse(last_intercepted_response_, last_intercepted_id_);
         has_new_intercepted_response_ = false;
       }
+
+      fetchPendingValue();
     }
 
     void OpenthermComponent::update()
@@ -145,17 +147,25 @@ namespace esphome
       if (diagnostic_ != nullptr)
         diagnostic_->publish_state(is_diagnostic);
 
-      // Temperature and other sensors (using cache with timeout)
-      float ext_temperature = getExternalTemperature();
-      float return_temperature = getReturnTemperature();
-      float boiler_temperature = getCachedOrFetch(cached_boiler_temp_, OpenThermMessageID::Tboiler);
+      if (dropped_frames_sensor_ != nullptr)
+        dropped_frames_sensor_->publish_state(dropped_frames_);
+
+      // Temperature and other sensors (using cache with timeout).
+      // Only values something consumes are read, so unsupported IDs don't cost bus time.
+      float ext_temperature = external_temperature_sensor_ != nullptr ? getExternalTemperature() : NAN;
+      float return_temperature = return_temperature_sensor_ != nullptr ? getReturnTemperature() : NAN;
+      float boiler_temperature = (boiler_temperature_ != nullptr || heating_water_climate_ != nullptr)
+                                     ? getCachedOrFetch(cached_boiler_temp_, OpenThermMessageID::Tboiler)
+                                     : NAN;
       float exhaust_temperature = exhaust_temperature_sensor_ != nullptr
                                       ? getCachedOrFetch(cached_exhaust_temp_, OpenThermMessageID::Texhaust)
                                       : NAN;
-      float pressure = getPressure();
-      float modulation = getModulation();
-      float heating_target_temp = getHeatingTargetTemperature();
-      float hot_water_temp = getHotWaterTemperature();
+      float pressure = pressure_sensor_ != nullptr ? getPressure() : NAN;
+      float modulation = modulation_sensor_ != nullptr ? getModulation() : NAN;
+      float heating_target_temp = (heating_target_temperature_sensor_ != nullptr || heating_water_climate_ != nullptr)
+                                      ? getHeatingTargetTemperature()
+                                      : NAN;
+      float hot_water_temp = hot_water_climate_ != nullptr ? getHotWaterTemperature() : NAN;
 
       if (external_temperature_sensor_ != nullptr && !std::isnan(ext_temperature))
         external_temperature_sensor_->publish_state(ext_temperature);
@@ -239,7 +249,9 @@ namespace esphome
       {
         hot_water_climate_->current_temperature = hot_water_temp;
         hot_water_climate_->action = is_hot_water_active ? climate::CLIMATE_ACTION_HEATING : climate::CLIMATE_ACTION_OFF;
-        hot_water_climate_->target_temperature = getHotWaterTargetTemperature();
+        float hot_water_target = getHotWaterTargetTemperature();
+        if (!std::isnan(hot_water_target))
+          hot_water_climate_->target_temperature = hot_water_target;
         hot_water_climate_->publish_state();
       }
 
@@ -430,42 +442,72 @@ namespace esphome
 
     void OpenthermComponent::processRequest(unsigned long request, OpenThermResponseStatus status)
     {
-      if (instance_ != nullptr && instance_->ot_ != nullptr && instance_->slave_ot_ != nullptr)
+      if (instance_ == nullptr || instance_->ot_ == nullptr || instance_->slave_ot_ == nullptr)
+        return;
+
+      // The library also calls back for partial (INVALID) and stale (TIMEOUT) frames.
+      // Forwarding those sends random type/id/data to the boiler, so drop them.
+      if (status != OpenThermResponseStatus::SUCCESS)
       {
-        unsigned long response = instance_->ot_->sendRequest(request);
+        instance_->dropped_frames_++;
+        ESP_LOGW(TAG, "Dropped thermostat frame 0x%08lX (%s), total dropped: %u",
+                 request, instance_->slave_ot_->statusToString(status), static_cast<unsigned>(instance_->dropped_frames_));
+        return;
+      }
+
+      unsigned long response = instance_->ot_->sendRequest(request);
+      // 0 = boiler did not answer, bad parity = noise; let the thermostat time out instead of relaying garbage
+      if (response != 0 && !instance_->ot_->parity(response))
         instance_->slave_ot_->sendResponse(response);
+      instance_->last_relay_ms_ = millis();
 
-        OpenThermMessageID id = instance_->ot_->getDataID(request);
-        OpenThermMessageType msg_type = instance_->ot_->getMessageType(request);
+      OpenThermMessageID id = instance_->ot_->getDataID(request);
+      OpenThermMessageType msg_type = instance_->ot_->getMessageType(request);
+      bool valid = instance_->ot_->isValidResponse(response);
 
-        // Log intercepted requests at VERBOSE level
-        ESP_LOGV(TAG, "Intercepted msg_id %d (type %d), response valid: %s",
-                 static_cast<int>(id),
-                 static_cast<int>(msg_type),
-                 instance_->ot_->isValidResponse(response) ? "yes" : "no");
+      ESP_LOGV(TAG, "Relayed 0x%08lX -> 0x%08lX", request, response);
 
-        // Update status response (critical for binary sensors)
-        if (id == OpenThermMessageID::Status)
-        {
-          last_status_response_ = response;
-        }
+      if (msg_type == OpenThermMessageType::WRITE_DATA)
+        instance_->logThermostatWrite(request);
 
-        // Store response for processing in loop() (outside interrupt context)
-        if (instance_->ot_->isValidResponse(response))
-        {
-          last_intercepted_response_ = response;
-          last_intercepted_id_ = id;
-          has_new_intercepted_response_ = true;
-        }
-        // Also cache WRITE-DATA requests (thermostat setting values)
-        else if (msg_type == OpenThermMessageType::WRITE_DATA)
-        {
-          // For WRITE requests, cache the REQUEST data (what thermostat wants to set)
-          last_intercepted_response_ = request; // Use request, not response
-          last_intercepted_id_ = id;
-          has_new_intercepted_response_ = true;
-          ESP_LOGV(TAG, "Caching WRITE-DATA request for msg_id %d", static_cast<int>(id));
-        }
+      // Update status response (critical for binary sensors)
+      if (id == OpenThermMessageID::Status && valid)
+      {
+        last_status_response_ = response;
+      }
+
+      // Store response for processing in loop()
+      if (valid)
+      {
+        last_intercepted_response_ = response;
+        last_intercepted_id_ = id;
+        has_new_intercepted_response_ = true;
+      }
+      // Also cache WRITE-DATA requests (thermostat setting values)
+      else if (msg_type == OpenThermMessageType::WRITE_DATA)
+      {
+        // For WRITE requests, cache the REQUEST data (what thermostat wants to set)
+        last_intercepted_response_ = request; // Use request, not response
+        last_intercepted_id_ = id;
+        has_new_intercepted_response_ = true;
+      }
+    }
+
+    void OpenthermComponent::logThermostatWrite(unsigned long request)
+    {
+      uint8_t id = (request >> 16) & 0xFF;
+      uint16_t data = request & 0xFFFF;
+      auto it = thermostat_writes_.find(id);
+      if (it == thermostat_writes_.end())
+      {
+        // Expected once per data-id after boot; later, a new id points to a corrupted frame
+        ESP_LOGW(TAG, "Thermostat WRITE to new data-id %u: 0x%04X", id, data);
+        thermostat_writes_[id] = data;
+      }
+      else if (it->second != data)
+      {
+        ESP_LOGD(TAG, "Thermostat WRITE data-id %u: 0x%04X -> 0x%04X", id, it->second, data);
+        it->second = data;
       }
     }
 
@@ -618,68 +660,55 @@ namespace esphome
 
     float OpenthermComponent::getCachedOrFetch(CachedValue &cache, OpenThermMessageID msg_id)
     {
-      unsigned long now = millis();
-
-      // Handle first fetch (cache never updated) - last_update will be 0
-      if (cache.last_update == 0)
-      {
-        ESP_LOGV(TAG, "First fetch for msg_id %d", static_cast<int>(msg_id));
-        unsigned long response = ot_->sendRequest(ot_->buildRequest(OpenThermRequestType::READ, msg_id, 0));
-
-        if (ot_->isValidResponse(response))
-        {
-          cache.value = decodeMessageValue(response, msg_id);
-          cache.last_update = now;
-          ESP_LOGV(TAG, "First fetch for msg_id %d: %.2f", static_cast<int>(msg_id), cache.value);
-          return cache.value;
-        }
-        else
-        {
-          ESP_LOGW(TAG, "First fetch failed for msg_id %d", static_cast<int>(msg_id));
-          cache.last_update = now; // Set timestamp to prevent immediate retry
-          return NAN;
-        }
-      }
-
       // Unsigned arithmetic handles millis() overflow correctly (wraps at 2^32)
-      unsigned long cache_age = now - cache.last_update;
+      unsigned long age = millis() - cache.last_update;
+      bool never_read = cache.last_update == 0;
+      bool fresh = !never_read && !std::isnan(cache.value) && age < CACHE_TIMEOUT_;
+      // Rate limit: a failed read also sets last_update, so unsupported IDs aren't retried every update
+      bool recently_tried = !never_read && age < MIN_FETCH_INTERVAL_;
 
-      // Check if cache is fresh (updated within last minute)
-      if (!std::isnan(cache.value) && cache_age < CACHE_TIMEOUT_)
+      if (!fresh && !recently_tried)
       {
-        ESP_LOGV(TAG, "Using cached value for msg_id %d: %.2f (age: %lu ms)",
-                 static_cast<int>(msg_id), cache.value, cache_age);
-        return cache.value;
+        bool queued = false;
+        for (const auto &pending : pending_fetches_)
+          queued |= pending.cache == &cache;
+        if (!queued)
+          pending_fetches_.push_back({&cache, msg_id});
       }
 
-      // Rate limiting: Don't fetch if we just fetched recently (prevents spam if cache keeps expiring)
-      if (cache_age < MIN_FETCH_INTERVAL_)
-      {
-        ESP_LOGV(TAG, "Rate limited fetch for msg_id %d (last fetch %lu ms ago, min interval %lu ms)",
-                 static_cast<int>(msg_id), cache_age, MIN_FETCH_INTERVAL_);
-        return cache.value; // Return stale value rather than spam the bus
-      }
+      return cache.value; // Fresh, stale or NAN; a queued read updates it for the next update()
+    }
 
-      // Cache is stale - fetch from boiler
-      ESP_LOGV(TAG, "Cache stale for msg_id %d (age: %lu ms), fetching from boiler",
-               static_cast<int>(msg_id), cache_age);
-      unsigned long response = ot_->sendRequest(ot_->buildRequest(OpenThermRequestType::READ, msg_id, 0));
+    void OpenthermComponent::fetchPendingValue()
+    {
+      if (pending_fetches_.empty() || !slave_ot_->isReady())
+        return;
+
+      // The thermostat sends about one frame per second. Reading right after a relayed frame keeps our
+      // blocking request out of the way of the next one; with a silent thermostat, read anyway.
+      unsigned long since_relay = millis() - last_relay_ms_;
+      if (since_relay > FETCH_WINDOW_ && since_relay < THERMOSTAT_SILENT_)
+        return;
+
+      PendingFetch fetch = pending_fetches_.front();
+      pending_fetches_.erase(pending_fetches_.begin());
+
+      unsigned long response = ot_->sendRequest(ot_->buildRequest(OpenThermRequestType::READ, fetch.id, 0));
+      fetch.cache->last_update = millis(); // Also on failure, to rate limit retries
 
       if (ot_->isValidResponse(response))
       {
-        cache.value = decodeMessageValue(response, msg_id);
-        cache.last_update = now;
-        ESP_LOGV(TAG, "Fetched value for msg_id %d: %.2f", static_cast<int>(msg_id), cache.value);
-        return cache.value;
+        fetch.cache->value = decodeMessageValue(response, fetch.id);
+        ESP_LOGV(TAG, "Fetched msg_id %d: %.2f", static_cast<int>(fetch.id), fetch.cache->value);
       }
       else
       {
-        ESP_LOGW(TAG, "Failed to fetch value for msg_id %d, using stale cache if available", static_cast<int>(msg_id));
-        // Update timestamp even on failure to prevent continuous retry spam
-        cache.last_update = now;
+        ESP_LOGW(TAG, "Failed to fetch value for msg_id %d (response 0x%08lX), using stale cache if available",
+                 static_cast<int>(fetch.id), response);
       }
 
-      return cache.value; // Return stale value or NAN
+      // Forward a thermostat frame that arrived while we were blocked
+      slave_ot_->process();
     }
 
     float OpenthermComponent::readGenericSensorValue(GenericReadSensor &read_sensor)

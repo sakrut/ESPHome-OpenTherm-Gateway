@@ -105,6 +105,10 @@ opentherm:
   exhaust_temperature:
     name: "${friendly_name} Exhaust Temperature"
     id: exhaust_temp
+
+  # Thermostat frames dropped as corrupt (INVALID/TIMEOUT); rising count = wiring/noise problem
+  dropped_frames:
+    name: "${friendly_name} Dropped Frames"
     
   pressure:
     name: "${friendly_name} System Pressure"
