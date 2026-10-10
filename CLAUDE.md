@@ -91,12 +91,13 @@ The GitHub Actions workflow (`.github/workflows/build.yml`) automatically builds
 1. Creates a dummy `secrets.yaml` with placeholder values
 2. Builds using the official `esphome/esphome` Docker image
 3. Validates the component compiles successfully
+4. Compiles `tests/minimal_hub/minimal_hub_test.yaml` (hub-only config with no top-level platform sections, regression test for issue #17)
 
 ## Component Dependencies
 
 - ESPHome 2022.5.0 or newer
 - OpenTherm Library 1.1.4 (automatically installed via `cg.add_library()`)
-- Required ESPHome platforms: binary_sensor, sensor, climate
+- Required ESPHome platforms: binary_sensor, sensor, climate, button (auto-loaded via `AUTO_LOAD` in `__init__.py`; no empty top-level sections needed)
 
 ## OpenTherm Protocol Documentation
 

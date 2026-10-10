@@ -27,10 +27,6 @@ external_components:
 ### Minimal Configuration
 
 ```yaml
-binary_sensor:
-sensor:
-climate:
-
 opentherm:
   id: opentherm_gateway
   in_pin: 4           # D2 - to boiler IN
@@ -44,10 +40,6 @@ opentherm:
 See [`example_opentherm.yaml`](example_opentherm.yaml) for complete example.
 
 ```yaml
-binary_sensor:
-sensor:
-climate:
-
 opentherm:
   id: opentherm_gateway
   in_pin: 4

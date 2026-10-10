@@ -19,8 +19,9 @@ import esphome.core as core
 
 
 CODEOWNERS = ["@sakrut"]
-# All sensors/climate are optional, so no required dependencies
-# DEPENDENCIES = ["binary_sensor", "sensor", "climate"]
+# The C++ sources always include these platform headers, so load them even when
+# the user's YAML has no top-level sensor/binary_sensor/climate/button sections.
+AUTO_LOAD = ["sensor", "binary_sensor", "climate", "button"]
 # Component constants
 CONF_FLAME = "flame"
 CONF_CH_ACTIVE = "ch_active"
