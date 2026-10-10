@@ -1,5 +1,5 @@
 name: build
-on: 
+on:
   workflow_dispatch:
   push:
     branches:
@@ -7,12 +7,25 @@ on:
   pull_request:
     branches:
       - main
+env:
+  # Pinned for reproducible builds; bump deliberately.
+  ESPHOME_VERSION: "2026.9.1"
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: .github/workflows/build.yml
+      - uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: platformio-${{ runner.os }}-${{ env.ESPHOME_VERSION }}
+      - run: pip install "esphome==${ESPHOME_VERSION}"
       - run: |
           echo -e "wifi_ssid: 'wifi_ssid'\nwifi_password: 'wifi_password'\nesphome_fallback_password: 'fallback_password'" > secrets.yaml
-      - run: docker run --rm -v "${PWD}":/config esphome/esphome compile build.yaml
-      - run: docker run --rm -v "${PWD}":/config esphome/esphome compile tests/minimal_hub/minimal_hub_test.yaml
+      - run: esphome compile build.yaml
+      - run: esphome compile tests/minimal_hub/minimal_hub_test.yaml
