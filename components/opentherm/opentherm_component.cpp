@@ -690,6 +690,17 @@ namespace esphome
       if (since_relay > FETCH_WINDOW_ && since_relay < THERMOSTAT_SILENT_)
         return;
 
+      // Drop entries an intercepted thermostat exchange already refreshed since they were queued
+      while (!pending_fetches_.empty())
+      {
+        const CachedValue *cache = pending_fetches_.front().cache;
+        if (std::isnan(cache->value) || millis() - cache->last_update >= CACHE_TIMEOUT_)
+          break;
+        pending_fetches_.erase(pending_fetches_.begin());
+      }
+      if (pending_fetches_.empty())
+        return;
+
       PendingFetch fetch = pending_fetches_.front();
       pending_fetches_.erase(pending_fetches_.begin());
 
