@@ -89,7 +89,7 @@ esphome config build.yaml
 ### CI/CD
 The GitHub Actions workflow (`.github/workflows/build.yml`) automatically builds `build.yaml` on push/PR to main. The workflow:
 1. Creates a dummy `secrets.yaml` with placeholder values
-2. Builds using the official `esphome/esphome` Docker image
+2. Installs the latest ESPHome release from PyPI (avoids Docker Hub pull rate limits; catches upstream breaking changes early)
 3. Validates the component compiles successfully
 4. Compiles `tests/minimal_hub/minimal_hub_test.yaml` (hub-only config with no top-level platform sections, regression test for issue #17)
 

@@ -11,8 +11,20 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # Always test against the latest ESPHome release, as most users run it.
+      - id: esphome
+        run: |
+          pip install --upgrade esphome
+          echo "version=$(esphome version | awk '{print $NF}')" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: platformio-${{ runner.os }}-${{ steps.esphome.outputs.version }}
       - run: |
           echo -e "wifi_ssid: 'wifi_ssid'\nwifi_password: 'wifi_password'\nesphome_fallback_password: 'fallback_password'" > secrets.yaml
-      - run: docker run --rm -v "${PWD}":/config esphome/esphome compile build.yaml
-      - run: docker run --rm -v "${PWD}":/config esphome/esphome compile tests/minimal_hub/minimal_hub_test.yaml
+      - run: esphome compile build.yaml
+      - run: esphome compile tests/minimal_hub/minimal_hub_test.yaml
