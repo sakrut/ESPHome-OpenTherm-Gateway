@@ -10,6 +10,8 @@ from esphome.const import (
     DEVICE_CLASS_PRESSURE,
     DEVICE_CLASS_PROBLEM,
     STATE_CLASS_MEASUREMENT,
+    STATE_CLASS_TOTAL_INCREASING,
+    ENTITY_CATEGORY_DIAGNOSTIC,
     UNIT_CELSIUS,
     UNIT_PERCENT,
     UNIT_HECTOPASCAL,
@@ -57,6 +59,7 @@ CONF_OEM_FAULT_CODE = "oem_fault_code"
 CONF_OEM_DIAGNOSTIC_CODE = "oem_diagnostic_code"
 CONF_MASTER_OT_VERSION = "master_ot_version"
 CONF_SLAVE_OT_VERSION = "slave_ot_version"
+CONF_DROPPED_FRAMES = "dropped_frames"
 
 # Generate namespaces
 opentherm_ns = cg.esphome_ns.namespace("esphome::opentherm")
@@ -169,6 +172,12 @@ CONFIG_SCHEMA = cv.Schema({
     cv.Optional(CONF_SLAVE_OT_VERSION): sensor.sensor_schema(
         accuracy_decimals=2,
     ),
+    cv.Optional(CONF_DROPPED_FRAMES): sensor.sensor_schema(
+        accuracy_decimals=0,
+        state_class=STATE_CLASS_TOTAL_INCREASING,
+        entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
+        icon="mdi:alert-circle-outline",
+    ),
     cv.Optional(CONF_FLAME): binary_sensor.binary_sensor_schema(
         device_class=DEVICE_CLASS_HEAT,
     ),
@@ -276,6 +285,10 @@ async def to_code(config):
     if CONF_SLAVE_OT_VERSION in config:
         sens = await sensor.new_sensor(config[CONF_SLAVE_OT_VERSION])
         cg.add(var.set_slave_ot_version_sensor(sens))
+
+    if CONF_DROPPED_FRAMES in config:
+        sens = await sensor.new_sensor(config[CONF_DROPPED_FRAMES])
+        cg.add(var.set_dropped_frames_sensor(sens))
 
     # Register binary sensors
     if CONF_FLAME in config:

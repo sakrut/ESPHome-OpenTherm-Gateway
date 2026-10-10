@@ -32,11 +32,11 @@ The component intercepts OpenTherm requests from the thermostat, forwards them t
 Key implementation details:
 - Two OpenTherm library instances: `ot_` (master) and `slave_ot_` (slave)
 - Static singleton pattern (`instance_`) for interrupt handlers
-- `processRequest()` is the core intercept function that forwards requests and caches sensor values
+- `processRequest()` is the core intercept function that forwards requests and caches sensor values. It forwards only frames the library reports as `SUCCESS`; `INVALID`/`TIMEOUT` frames (partial or late) are dropped and counted, because forwarding them sends random type/id/data to the boiler
 - `last_status_response_` caches the most recent status for sensor publishing
 - Component polls every 30 seconds (PollingComponent base)
 - **Smart caching**: Values intercepted from thermostat↔boiler communication are cached with 1-minute timeout
-- Only stale cached values trigger actual requests to the boiler, minimizing bus overhead
+- Only stale cached values trigger actual requests to the boiler, minimizing bus overhead. These reads are queued and sent one at a time from `loop()` right after a relayed thermostat frame, so they never block thermostat traffic
 - Interrupt-driven communication via `IRAM_ATTR` handlers
 - Immediate verification after temperature setpoint changes
 
@@ -325,12 +325,12 @@ unsigned long response = ot_->sendRequest(request);
 - Extract status bits: `ot_->isFlameOn(response)`, `ot_->isCentralHeatingActive(response)`, etc.
 
 ### Interrupt Safety
-All interrupt handlers must be marked `IRAM_ATTR` and access only static members or members via the static `instance_` pointer. The handlers (`handleInterrupt()`, `slaveHandleInterrupt()`) and callback (`processRequest()`) follow this pattern.
+All interrupt handlers must be marked `IRAM_ATTR` and access only static members or members via the static `instance_` pointer. The handlers (`handleInterrupt()`, `slaveHandleInterrupt()`) follow this pattern. `processRequest()` is not an interrupt handler: the library calls it from `slave_ot_->process()`, i.e. from `loop()`.
 
 ### Component Lifecycle
 1. **setup()** - Initialize OpenTherm instances, register climate callbacks
-2. **loop()** - Process slave OpenTherm communication (`slave_ot_->process()`) and intercepted responses
-3. **update()** - Called at the configured `update_interval` (default: 30s) to read sensors (using cache) and publish states to Home Assistant
+2. **loop()** - Process slave OpenTherm communication (`slave_ot_->process()`), intercepted responses, and at most one queued boiler read (`fetchPendingValue()`)
+3. **update()** - Called at the configured `update_interval` (default: 30s) to publish cached values to Home Assistant and queue reads for stale ones (non-blocking)
 4. **processRequest()** - Static callback for intercepting thermostat requests and caching sensor values
 
 ### Smart Caching System
@@ -338,13 +338,14 @@ All interrupt handlers must be marked `IRAM_ATTR` and access only static members
 The component implements intelligent caching to minimize OpenTherm bus traffic:
 
 **How it works**:
-1. All thermostat→boiler communication flows through `processRequest()` (interrupt context)
-2. Responses are stored atomically and processed in `loop()` (normal context) to avoid interrupt safety issues
+1. All thermostat→boiler communication flows through `processRequest()` (called from `loop()`)
+2. Responses are stored and processed later in `loop()`
 3. When a response contains sensor data (temperature, pressure, modulation, etc.), it's cached with a timestamp
 4. When Home Assistant requests sensor updates (every 30s), the component checks cache first:
    - **Cache fresh** (< 1 minute old): Use cached value, **zero bus traffic**
    - **Cache stale but recent** (> 1 min, < 5s since last fetch): Use stale value, **prevent spam**
-   - **Cache very stale** (> 5s since last fetch): Request from boiler, update cache
+   - **Cache very stale** (> 5s since last fetch): Queue a read; `loop()` sends it within 200ms after the next relayed thermostat frame (or immediately if the thermostat is silent for 3s). The new value is published on the next `update()`
+   - Values with no configured sensor/climate consuming them are never read
 
 **Cached Data IDs**:
 - `Toutside` (27) - External temperature
@@ -358,7 +359,7 @@ The component implements intelligent caching to minimize OpenTherm bus traffic:
 
 **Safety Features**:
 - **Interrupt safety**: Cache updates happen in `loop()`, not interrupt context
-- **Rate limiting**: Minimum 5 seconds between fetch requests for the same sensor
+- **Rate limiting**: Minimum 5 seconds between fetch requests for the same sensor; at most one gateway read per thermostat cycle
 - **Millis overflow safe**: Uses unsigned arithmetic that handles 49-day overflow correctly
 - **Failure handling**: Failed fetches don't spam the bus (timestamp updated even on failure)
 
@@ -372,6 +373,21 @@ The component implements intelligent caching to minimize OpenTherm bus traffic:
 ```cpp
 const unsigned long CACHE_TIMEOUT_{60000};        // 1 minute - cache freshness
 const unsigned long MIN_FETCH_INTERVAL_{5000};    // 5 seconds - rate limit
+const unsigned long FETCH_WINDOW_{200};           // own reads start within 200ms after a relayed frame
+const unsigned long THERMOSTAT_SILENT_{3000};     // no thermostat traffic for 3s: read without waiting
+```
+
+### Frame Safety and Anomaly Logging
+
+- Thermostat frames with library status `INVALID` (partial Manchester frame) or `TIMEOUT` (late/stuck) are **not forwarded**. Each one logs `WARN Dropped thermostat frame 0x... (INVALID|TIMEOUT)` and increments the optional `dropped_frames` sensor (diagnostic, `total_increasing`), so HA history records them without a log listener.
+- A boiler response that is `0` (no answer) or has bad parity is not relayed to the thermostat; the thermostat times out and retries.
+- `last_status_response_` is only updated from valid Status responses.
+- Every thermostat WRITE-DATA frame is tracked per data-id: the first write to an id logs at WARN (expected once per id after boot), changed data logs at DEBUG. A WARN for a new id long after boot points to a corrupted frame reaching the boiler.
+
+```yaml
+opentherm:
+  dropped_frames:
+    name: "Dropped Frames"
 ```
 
 ## Debugging and Common Issues
@@ -394,7 +410,7 @@ logger:
 5. **Sensors stuck at 0 or not updating**:
    - Check cache initialization - there was a bug where `last_update == 0` caused overflow in time calculations
    - Enable VERBOSE logging to see if values are being intercepted and cached
-   - Verify thermostat is actually requesting these values (check logs for "Intercepted msg_id")
+   - Verify thermostat is actually requesting these values (VERBOSE logs show "Relayed 0x... -> 0x...")
 
 ### Recent Bug Fixes
 
@@ -419,7 +435,7 @@ logger:
 - **Status requests** are periodic and critical - they update `last_status_response_` which feeds all binary sensors
 - **Temperature reads** use smart caching - if thermostat requested the value recently (<1 min), cached value is used
 - **Temperature writes** happen immediately when climate entity target is changed, with immediate verification
-- The component doesn't modify requests from the thermostat, it only intercepts, forwards, and caches responses
+- The component doesn't modify requests from the thermostat, it only intercepts, forwards, and caches responses (corrupt INVALID/TIMEOUT frames are dropped, not forwarded)
 
 ### Temperature Setpoint Verification
 
