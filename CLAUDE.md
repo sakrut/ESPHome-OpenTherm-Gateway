@@ -93,6 +93,8 @@ The GitHub Actions workflow (`.github/workflows/build.yml`) automatically builds
 3. Validates the component compiles successfully
 4. Compiles `tests/minimal_hub/minimal_hub_test.yaml` (hub-only config with no top-level platform sections, regression test for issue #17)
 
+The release workflow (`.github/workflows/release.yml`) runs on `v*` tag push: it reuses the build workflow (`workflow_call`) and, only if that passes, creates the GitHub release with auto-generated notes. It sets `permissions: contents: write` because the repo's default `GITHUB_TOKEN` is read-only. To release, push a tag (`git tag v2.4.0 && git push origin v2.4.0`) and edit the release text afterwards if needed; do not create the release manually first.
+
 ## Component Dependencies
 
 - ESPHome 2022.5.0 or newer
