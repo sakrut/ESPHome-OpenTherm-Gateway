@@ -8,6 +8,7 @@ An ESPHome external component for OpenTherm boilers using [Ihor Melnyk's adapter
 
 - ✅ **Monitor**: Status (flame, heating, DHW, fault), temperatures, pressure, modulation
 - ✅ **Control**: Override heating/DHW temperature setpoints via Home Assistant
+- ✅ **Block heating**: Set heating climate to Off to block CH regardless of thermostat
 - ✅ **Smart persistence**: User-set temperatures don't reset (fixed for heating curves)
 - ✅ **Diagnostics**: Max setpoints, OEM fault/diagnostic codes, OpenTherm versions
 - ✅ **Reset button**: Remote BLOR (Boiler Lock-Out Reset) command
@@ -174,6 +175,13 @@ button:
 - Boilers with heating curves calculate water temp based on outdoor temp
 - `room_climate` is read-only and follows thermostat setpoint (TrSet)
 - `room_climate.current_temperature` priority: external sensor, then OpenTherm Tr
+
+### Blocking Central Heating
+
+- **Heating climate Off** - gateway clears CH enable bit in thermostat's Status request (Data-ID 0)
+- **Heating climate Heat** - requests forwarded unchanged (default after boot)
+- Thermostat keeps controlling comfort whenever heating is allowed
+- TSet override is overwritten by the thermostat's next TSet write - use Off for reliable blocking
 
 ### Smart Caching
 
