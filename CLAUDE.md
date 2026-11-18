@@ -48,6 +48,8 @@ Key implementation details:
 
 Each climate entity uses a callback pattern to communicate temperature changes back to the main component, which then sends OpenTherm WRITE commands.
 
+Climate mode is restored via `restore_state_()` (HEAT on first boot). `heating_water_climate` in **Off** blocks CH: `processRequest()` clears the master CH enable bit (bit 8) in the thermostat's READ Status (Data-ID 0) frame, after frame validation (`buildRequest()` recomputes parity, so rewriting first would hide a corrupted frame). The boiler's Status response echoes the cleared bit back to the thermostat.
+
 ## Build and Test Commands
 
 ### Local Build with Docker (Recommended)
@@ -461,7 +463,7 @@ logger:
 - **Status requests** are periodic and critical - they update `last_status_response_` which feeds all binary sensors
 - **Temperature reads** use smart caching - if thermostat requested the value recently (<1 min), cached value is used
 - **Temperature writes** happen immediately when climate entity target is changed, with immediate verification
-- The component doesn't modify requests from the thermostat, it only intercepts, forwards, and caches responses (corrupt INVALID/TIMEOUT frames are dropped; frames failing `frame_validation` or unconfirmed protected writes are not forwarded)
+- The component forwards thermostat requests unchanged, except clearing the CH enable bit in Status while `heating_water_climate` is Off (corrupt INVALID/TIMEOUT frames are dropped; frames failing `frame_validation` or unconfirmed protected writes are not forwarded)
 
 ### Temperature Setpoint Verification
 

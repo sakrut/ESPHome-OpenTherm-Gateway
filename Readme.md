@@ -181,7 +181,8 @@ button:
 ### Blocking Central Heating
 
 - **Heating climate Off** - gateway clears CH enable bit in thermostat's Status request (Data-ID 0)
-- **Heating climate Heat** - requests forwarded unchanged (default after boot)
+- **Heating climate Heat** - requests forwarded unchanged (default on first boot)
+- Mode is restored after reboot/OTA (ESP8266: `restore_from_flash: true` to survive power loss)
 - Thermostat keeps controlling comfort whenever heating is allowed
 - TSet override is overwritten by the thermostat's next TSet write - use Off for reliable blocking
 

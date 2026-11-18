@@ -7,7 +7,8 @@ namespace opentherm {
 static const char *const TAG = "opentherm.climate";
 
 void OpenthermClimate::setup() {
-  this->mode = climate::CLIMATE_MODE_HEAT;
+  auto restore = this->restore_state_();
+  this->mode = restore.has_value() ? restore->mode : climate::CLIMATE_MODE_HEAT;
   // Don't set target_temperature to 0 - leave it as NAN until initialized
   // from boiler or set by user
   if (default_target_temperature_ > 0) {
