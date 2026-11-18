@@ -71,6 +71,8 @@ opentherm:
     name: "Exhaust Temperature"
   dropped_frames:
     name: "Dropped Frames"  # Corrupt thermostat frames not forwarded to boiler
+  rejected_frames:
+    name: "Rejected Frames"  # Parity-valid frames failing frame_validation
   heating_target_temperature:
     name: "Heating Target"  # What boiler actually uses
   room_temperature:
@@ -184,6 +186,51 @@ button:
 - Own reads are queued and sent between thermostat frames (never block the thermostat)
 - Corrupt thermostat frames (INVALID/TIMEOUT) are dropped, not forwarded, and counted in `dropped_frames`
 - **Result: ~80-90% less bus traffic**
+
+### Frame Validation
+
+Parity catches only half of corrupted frames. Defaults (OpenTherm 2.2 rules, all boilers):
+
+```yaml
+opentherm:
+  rejected_frames:
+    name: "Rejected Frames"
+  frame_validation:
+    check_spare_bits: true     # request/response bits 27..24 must be 0
+    check_response_id: true    # boiler response Data-ID must match the request
+    write_confirmations: 2     # 1 = off
+```
+
+- A changed WRITE to Data-ID 1, 4, 11, 13, 14, 56, 57 or >=128 reaches the boiler only after `write_confirmations` identical frames (per TSP index for Data-ID 11). The first frame gets no answer; the thermostat retries.
+- Rejected frames are not forwarded or answered, logged at WARN and counted in `rejected_frames`.
+
+### Transparent Slave Parameters (TSP)
+
+TSP indexes (Data-ID 11) are manufacturer-specific, so nothing is enabled by default. Example: Beretta Exclusive Green / Riello (MemberID 31), heating curve offset at index 0xFA, signed, -5..+5:
+
+```yaml
+esp8266:
+  restore_from_flash: true     # keeps the last good TSP value across reboots
+
+opentherm:
+  tsp:
+    - index: 0xFA
+      signed: true
+      min_value: -5
+      max_value: 5
+      master_writes: validate  # pass | validate (range) | block
+      guard: true              # value read outside min..max: write back the last good one
+      poll_interval: 5min      # min 1min
+      sensor:
+        name: "Heating Curve Offset"
+      number:
+        name: "Heating Curve Offset"
+```
+
+- `sensor`: value read every `poll_interval`, between thermostat frames.
+- `number`: HA control; writes, then reads back to verify. Values outside min..max are refused.
+- `master_writes: validate` rejects thermostat writes outside min..max; in-range writes still need `write_confirmations`.
+- `guard` restores the last in-range value seen (stored in preferences) and logs WARN.
 
 ## Troubleshooting
 

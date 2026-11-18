@@ -1,4 +1,5 @@
 #include "opentherm_component.h"
+#include "esphome/core/helpers.h"
 #include "esphome/core/log.h"
 
 namespace esphome
@@ -7,6 +8,24 @@ namespace esphome
   {
 
     static const char *const TAG = "opentherm.component";
+    static const unsigned long SPARE_BITS = 0x0F000000;
+
+    static bool isProtectedWrite(uint8_t id)
+    {
+      switch (id)
+      {
+        case 1:  // TSet
+        case 4:  // Command
+        case 11: // TSP
+        case 13: // FHB
+        case 14: // MaxRelModLevelSetting
+        case 56: // TdhwSet
+        case 57: // MaxTSet
+          return true;
+        default:
+          return id >= 128; // manufacturer-specific
+      }
+    }
 
     // Initialize static members
     OpenthermComponent *OpenthermComponent::instance_ = nullptr;
@@ -26,6 +45,23 @@ namespace esphome
       read_sensor.sensor = sensor;
       read_sensor.id = static_cast<OpenThermMessageID>(message_id);
       read_sensors_.push_back(read_sensor);
+    }
+
+    void OpenthermComponent::add_tsp(uint8_t index, bool is_signed, int min_value, int max_value,
+                                     TspMasterWrites master_writes, bool guard, uint32_t poll_interval,
+                                     sensor::Sensor *sensor, OpenthermNumber *number)
+    {
+      TspParam tsp;
+      tsp.index = index;
+      tsp.is_signed = is_signed;
+      tsp.min_value = min_value;
+      tsp.max_value = max_value;
+      tsp.master_writes = master_writes;
+      tsp.guard = guard;
+      tsp.poll_interval = poll_interval;
+      tsp.sensor = sensor;
+      tsp.number = number;
+      tsp_params_.push_back(tsp);
     }
 
     void OpenthermComponent::setup()
@@ -51,6 +87,21 @@ namespace esphome
       {
         heating_water_climate_->set_target_temperature_callback([this](float temperature)
                                                                 { return this->setHeatingTargetTemperature(temperature); });
+      }
+
+      // tsp_params_ is complete here, so references into it stay valid
+      for (auto &tsp : tsp_params_)
+      {
+        tsp.pref = global_preferences->make_preference<int16_t>(fnv1_hash(str_sprintf("opentherm_tsp_%u", tsp.index)));
+        int16_t saved;
+        if (tsp.pref.load(&saved) && saved >= tsp.min_value && saved <= tsp.max_value)
+        {
+          tsp.last_good = saved;
+          tsp.has_last_good = true;
+        }
+        if (tsp.number != nullptr)
+          tsp.number->set_control_callback([this, &tsp](float value)
+                                           { this->writeTsp(tsp, static_cast<int>(lroundf(value))); });
       }
 
       // Read Phase 1 values once at startup (these don't change)
@@ -149,6 +200,23 @@ namespace esphome
 
       if (dropped_frames_sensor_ != nullptr)
         dropped_frames_sensor_->publish_state(dropped_frames_);
+
+      if (rejected_frames_sensor_ != nullptr)
+        rejected_frames_sensor_->publish_state(rejected_frames_);
+
+      for (auto &tsp : tsp_params_)
+      {
+        if (tsp.cache.last_update != tsp.checked_at)
+        {
+          tsp.checked_at = tsp.cache.last_update;
+          checkTsp(tsp);
+        }
+        if (tsp.cache.last_update == 0 || millis() - tsp.cache.last_update >= tsp.poll_interval)
+        {
+          tsp.cache.value = NAN; // a failed read stays NAN, so checkTsp never acts on a stale value
+          queueFetch(tsp.cache, OpenThermMessageID::TSPindexTSPvalue, tsp.index << 8);
+        }
+      }
 
       // Temperature and other sensors (using cache with timeout).
       // Only values something consumes are read, so unsupported IDs don't cost bus time.
@@ -455,20 +523,31 @@ namespace esphome
         return;
       }
 
-      unsigned long response = instance_->ot_->sendRequest(request);
-      // 0 = boiler did not answer, bad parity = noise; let the thermostat time out instead of relaying garbage
-      if (response != 0 && !instance_->ot_->parity(response))
-        instance_->slave_ot_->sendResponse(response);
-      instance_->last_relay_ms_ = millis();
+      // Parity passes for about half of the corrupted frames, so check the fields the spec fixes
+      if (instance_->check_spare_bits_ && (request & SPARE_BITS))
+      {
+        instance_->rejectFrame(request, "spare bits set");
+        return;
+      }
 
       OpenThermMessageID id = instance_->ot_->getDataID(request);
       OpenThermMessageType msg_type = instance_->ot_->getMessageType(request);
-      bool valid = instance_->ot_->isValidResponse(response);
+
+      if (msg_type == OpenThermMessageType::WRITE_DATA && !instance_->checkThermostatWrite(request))
+        return;
+
+      unsigned long response = instance_->ot_->sendRequest(request);
+      bool relayed = instance_->isValidReply(request, response);
+      // Not answering makes the thermostat time out and retry instead of acting on garbage
+      if (relayed)
+        instance_->slave_ot_->sendResponse(response);
+      else if (response != 0)
+        instance_->rejectFrame(response, "boiler response does not match request");
+      instance_->last_relay_ms_ = millis();
+
+      bool valid = relayed && instance_->ot_->isValidResponse(response);
 
       ESP_LOGV(TAG, "Relayed 0x%08lX -> 0x%08lX", request, response);
-
-      if (msg_type == OpenThermMessageType::WRITE_DATA)
-        instance_->logThermostatWrite(request);
 
       // Update status response (critical for binary sensors)
       if (id == OpenThermMessageID::Status && valid)
@@ -493,22 +572,191 @@ namespace esphome
       }
     }
 
-    void OpenthermComponent::logThermostatWrite(unsigned long request)
+    bool OpenthermComponent::checkThermostatWrite(unsigned long request)
     {
       uint8_t id = (request >> 16) & 0xFF;
       uint16_t data = request & 0xFFFF;
-      auto it = thermostat_writes_.find(id);
-      if (it == thermostat_writes_.end())
+      bool is_tsp = id == static_cast<uint8_t>(OpenThermMessageID::TSPindexTSPvalue);
+
+      TspParam *tsp = is_tsp ? findTsp(data >> 8) : nullptr;
+      if (tsp != nullptr && tsp->master_writes == TspMasterWrites::BLOCK)
       {
-        // Expected once per data-id after boot; later, a new id points to a corrupted frame
+        rejectFrame(request, "TSP write blocked");
+        return false;
+      }
+      if (tsp != nullptr && tsp->master_writes == TspMasterWrites::VALIDATE)
+      {
+        int value = tspValue(*tsp, data);
+        if (value < tsp->min_value || value > tsp->max_value)
+        {
+          rejectFrame(request, "TSP write out of range");
+          return false;
+        }
+      }
+
+      uint16_t key = (id << 8) | (is_tsp ? data >> 8 : 0);
+      auto pending = pending_writes_.find(key);
+      if (pending != pending_writes_.end() && pending->second.data != data)
+      {
+        rejected_frames_++;
+        ESP_LOGW(TAG, "Discarded unconfirmed thermostat WRITE data-id %u: 0x%04X", id, pending->second.data);
+        pending_writes_.erase(pending);
+        pending = pending_writes_.end();
+      }
+
+      auto known = thermostat_writes_.find(key);
+      bool unchanged = known != thermostat_writes_.end() && known->second == data;
+      if (!unchanged && write_confirmations_ > 1 && isProtectedWrite(id))
+      {
+        if (pending == pending_writes_.end())
+        {
+          // shortcut: a corrupt frame whose key never repeats stays pending; the cap bounds memory
+          if (pending_writes_.size() >= 8)
+            pending_writes_.erase(pending_writes_.begin());
+          pending = pending_writes_.emplace(key, PendingWrite{data, 0}).first;
+        }
+        if (++pending->second.count < write_confirmations_)
+        {
+          ESP_LOGI(TAG, "Holding thermostat WRITE data-id %u: 0x%04X until repeated (%u/%u)", id, data,
+                   pending->second.count, write_confirmations_);
+          return false;
+        }
+        pending_writes_.erase(pending);
+      }
+
+      if (known == thermostat_writes_.end())
+        // Expected once per key after boot; later, a new key points to a corrupted frame
         ESP_LOGW(TAG, "Thermostat WRITE to new data-id %u: 0x%04X", id, data);
-        thermostat_writes_[id] = data;
-      }
-      else if (it->second != data)
+      else if (!unchanged)
+        ESP_LOGD(TAG, "Thermostat WRITE data-id %u: 0x%04X -> 0x%04X", id, known->second, data);
+      thermostat_writes_[key] = data;
+      return true;
+    }
+
+    bool OpenthermComponent::isValidReply(unsigned long request, unsigned long response) const
+    {
+      if (response == 0 || ot_->parity(response))
+        return false;
+      OpenThermMessageType type = ot_->getMessageType(response);
+      if (static_cast<uint8_t>(type) < 4) // responses: READ_ACK, WRITE_ACK, DATA_INVALID, UNKNOWN_DATA_ID
+        return false;
+      if (check_spare_bits_ && (response & SPARE_BITS))
+        return false;
+      if (!check_response_id_)
+        return true;
+      if (ot_->getDataID(response) != ot_->getDataID(request))
+        return false;
+      // A TSP READ_ACK echoes the requested index
+      return ot_->getDataID(request) != OpenThermMessageID::TSPindexTSPvalue ||
+             type != OpenThermMessageType::READ_ACK || ((response ^ request) & 0xFF00) == 0;
+    }
+
+    void OpenthermComponent::rejectFrame(unsigned long frame, const char *reason)
+    {
+      rejected_frames_++;
+      ESP_LOGW(TAG, "Rejected frame 0x%08lX (%s), total rejected: %u", frame, reason,
+               static_cast<unsigned>(rejected_frames_));
+    }
+
+    OpenthermComponent::TspParam *OpenthermComponent::findTsp(uint8_t index)
+    {
+      for (auto &tsp : tsp_params_)
       {
-        ESP_LOGD(TAG, "Thermostat WRITE data-id %u: 0x%04X -> 0x%04X", id, it->second, data);
-        it->second = data;
+        if (tsp.index == index)
+          return &tsp;
       }
+      return nullptr;
+    }
+
+    int OpenthermComponent::tspValue(const TspParam &tsp, uint16_t data) const
+    {
+      uint8_t value = data & 0xFF;
+      return tsp.is_signed ? static_cast<int8_t>(value) : value;
+    }
+
+    void OpenthermComponent::checkTsp(TspParam &tsp)
+    {
+      if (std::isnan(tsp.cache.value))
+        return;
+
+      int value = tspValue(tsp, static_cast<uint16_t>(tsp.cache.value));
+      if (tsp.sensor != nullptr)
+        tsp.sensor->publish_state(value);
+
+      if (value >= tsp.min_value && value <= tsp.max_value)
+      {
+        rememberTsp(tsp, value);
+        if (tsp.number != nullptr)
+          tsp.number->publish_state(value);
+        return;
+      }
+
+      ESP_LOGW(TAG, "TSP 0x%02X = %d outside [%d, %d]", tsp.index, value, tsp.min_value, tsp.max_value);
+      if (!tsp.guard)
+        return;
+      if (!tsp.has_last_good)
+      {
+        ESP_LOGW(TAG, "TSP 0x%02X: no known good value to restore", tsp.index);
+        return;
+      }
+      ESP_LOGW(TAG, "TSP 0x%02X: restoring %d", tsp.index, tsp.last_good);
+      writeTsp(tsp, tsp.last_good);
+    }
+
+    bool OpenthermComponent::writeTsp(TspParam &tsp, int value)
+    {
+      if (value < tsp.min_value || value > tsp.max_value)
+      {
+        ESP_LOGW(TAG, "TSP 0x%02X: refusing to write %d outside [%d, %d]", tsp.index, value, tsp.min_value,
+                 tsp.max_value);
+        return false;
+      }
+
+      ESP_LOGI(TAG, "Writing TSP 0x%02X = %d", tsp.index, value);
+      unsigned long request = ot_->buildRequest(OpenThermRequestType::WRITE, OpenThermMessageID::TSPindexTSPvalue,
+                                                (tsp.index << 8) | static_cast<uint8_t>(value));
+      unsigned long response = ot_->sendRequest(request);
+      slave_ot_->process();
+      if (!isValidReply(request, response) || ot_->getMessageType(response) != OpenThermMessageType::WRITE_ACK)
+      {
+        ESP_LOGE(TAG, "TSP 0x%02X write failed (response 0x%08lX)", tsp.index, response);
+        return false;
+      }
+
+      request = ot_->buildRequest(OpenThermRequestType::READ, OpenThermMessageID::TSPindexTSPvalue, tsp.index << 8);
+      response = ot_->sendRequest(request);
+      slave_ot_->process();
+      if (!isValidReply(request, response) || ot_->getMessageType(response) != OpenThermMessageType::READ_ACK)
+      {
+        ESP_LOGW(TAG, "TSP 0x%02X write acknowledged, read-back failed (response 0x%08lX)", tsp.index, response);
+        return false;
+      }
+
+      int actual = tspValue(tsp, response & 0xFFFF);
+      tsp.cache.value = response & 0xFFFF;
+      tsp.cache.last_update = millis();
+      tsp.checked_at = tsp.cache.last_update;
+      if (tsp.sensor != nullptr)
+        tsp.sensor->publish_state(actual);
+      if (actual != value)
+      {
+        ESP_LOGW(TAG, "TSP 0x%02X read back %d after writing %d", tsp.index, actual, value);
+        return false;
+      }
+      rememberTsp(tsp, actual);
+      if (tsp.number != nullptr)
+        tsp.number->publish_state(actual);
+      ESP_LOGI(TAG, "TSP 0x%02X verified: %d", tsp.index, actual);
+      return true;
+    }
+
+    void OpenthermComponent::rememberTsp(TspParam &tsp, int value)
+    {
+      if (tsp.has_last_good && tsp.last_good == value)
+        return;
+      tsp.last_good = value;
+      tsp.has_last_good = true;
+      tsp.pref.save(&tsp.last_good);
     }
 
     void OpenthermComponent::processCachedResponse(unsigned long response, OpenThermMessageID id)
@@ -668,15 +916,19 @@ namespace esphome
       bool recently_tried = !never_read && age < MIN_FETCH_INTERVAL_;
 
       if (!fresh && !recently_tried)
-      {
-        bool queued = false;
-        for (const auto &pending : pending_fetches_)
-          queued |= pending.cache == &cache;
-        if (!queued)
-          pending_fetches_.push_back({&cache, msg_id});
-      }
+        queueFetch(cache, msg_id, 0);
 
       return cache.value; // Fresh, stale or NAN; a queued read updates it for the next update()
+    }
+
+    void OpenthermComponent::queueFetch(CachedValue &cache, OpenThermMessageID msg_id, uint16_t data)
+    {
+      for (const auto &pending : pending_fetches_)
+      {
+        if (pending.cache == &cache)
+          return;
+      }
+      pending_fetches_.push_back({&cache, msg_id, data});
     }
 
     void OpenthermComponent::fetchPendingValue()
@@ -704,10 +956,11 @@ namespace esphome
       PendingFetch fetch = pending_fetches_.front();
       pending_fetches_.erase(pending_fetches_.begin());
 
-      unsigned long response = ot_->sendRequest(ot_->buildRequest(OpenThermRequestType::READ, fetch.id, 0));
+      unsigned long request = ot_->buildRequest(OpenThermRequestType::READ, fetch.id, fetch.data);
+      unsigned long response = ot_->sendRequest(request);
       fetch.cache->last_update = millis(); // Also on failure, to rate limit retries
 
-      if (ot_->isValidResponse(response))
+      if (isValidReply(request, response) && ot_->isValidResponse(response))
       {
         fetch.cache->value = decodeMessageValue(response, fetch.id);
         ESP_LOGV(TAG, "Fetched msg_id %d: %.2f", static_cast<int>(fetch.id), fetch.cache->value);

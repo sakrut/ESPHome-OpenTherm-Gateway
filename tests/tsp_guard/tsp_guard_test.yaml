@@ -1,0 +1,46 @@
+# Frame validation options and an opt-in TSP entry with sensor, number and guard.
+esphome:
+  name: opentherm-tsp-test
+
+esp8266:
+  board: nodemcuv2
+  restore_from_flash: true
+
+logger:
+
+opentherm:
+  id: opentherm_gateway
+  in_pin: 4
+  out_pin: 5
+  slave_in_pin: 12
+  slave_out_pin: 13
+
+  rejected_frames:
+    name: "Rejected Frames"
+
+  frame_validation:
+    check_spare_bits: true
+    check_response_id: true
+    write_confirmations: 2
+
+  tsp:
+    - index: 0xFA
+      signed: true
+      min_value: -5
+      max_value: 5
+      master_writes: validate
+      guard: true
+      poll_interval: 5min
+      sensor:
+        name: "Heating Curve Offset"
+      number:
+        name: "Heating Curve Offset"
+    - index: 0xF0
+      min_value: 0
+      max_value: 20
+
+external_components:
+  - source:
+      type: local
+      path: ../../components
+    components: [ opentherm ]

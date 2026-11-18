@@ -1,8 +1,13 @@
 import esphome.codegen as cg
 import esphome.config_validation as cv
-from esphome.components import binary_sensor, sensor, climate
+from esphome.components import binary_sensor, sensor, climate, number
 from esphome.const import (
     CONF_ID,
+    CONF_INDEX,
+    CONF_MAX_VALUE,
+    CONF_MIN_VALUE,
+    CONF_NUMBER,
+    CONF_SENSOR,
     CONF_TEMPERATURE,
     CONF_UPDATE_INTERVAL,
     DEVICE_CLASS_HEAT,
@@ -23,7 +28,7 @@ import esphome.core as core
 CODEOWNERS = ["@sakrut"]
 # The C++ sources always include these platform headers, so load them even when
 # the user's YAML has no top-level sensor/binary_sensor/climate/button sections.
-AUTO_LOAD = ["sensor", "binary_sensor", "climate", "button"]
+AUTO_LOAD = ["sensor", "binary_sensor", "climate", "button", "number"]
 # Component constants
 CONF_FLAME = "flame"
 CONF_CH_ACTIVE = "ch_active"
@@ -60,12 +65,58 @@ CONF_OEM_DIAGNOSTIC_CODE = "oem_diagnostic_code"
 CONF_MASTER_OT_VERSION = "master_ot_version"
 CONF_SLAVE_OT_VERSION = "slave_ot_version"
 CONF_DROPPED_FRAMES = "dropped_frames"
+CONF_REJECTED_FRAMES = "rejected_frames"
+CONF_FRAME_VALIDATION = "frame_validation"
+CONF_CHECK_SPARE_BITS = "check_spare_bits"
+CONF_CHECK_RESPONSE_ID = "check_response_id"
+CONF_WRITE_CONFIRMATIONS = "write_confirmations"
+CONF_TSP = "tsp"
+CONF_SIGNED = "signed"
+CONF_MASTER_WRITES = "master_writes"
+CONF_GUARD = "guard"
+CONF_POLL_INTERVAL = "poll_interval"
 
 # Generate namespaces
 opentherm_ns = cg.esphome_ns.namespace("esphome::opentherm")
 OpenthermComponent = opentherm_ns.class_("OpenthermComponent", cg.Component)
 OpenthermClimate = opentherm_ns.class_("OpenthermClimate", climate.Climate, cg.Component)
+OpenthermNumber = opentherm_ns.class_("OpenthermNumber", number.Number)
 ClimateType = opentherm_ns.enum("ClimateType")
+TspMasterWrites = opentherm_ns.enum("TspMasterWrites", is_class=True)
+TSP_MASTER_WRITES = {
+    "pass": TspMasterWrites.PASS,
+    "validate": TspMasterWrites.VALIDATE,
+    "block": TspMasterWrites.BLOCK,
+}
+
+
+def validate_tsp_range(config):
+    low, high = (-128, 127) if config[CONF_SIGNED] else (0, 255)
+    if not low <= config[CONF_MIN_VALUE] <= config[CONF_MAX_VALUE] <= high:
+        raise cv.Invalid(f"min_value..max_value must be ordered and within {low}..{high}")
+    return config
+
+
+TSP_SCHEMA = cv.All(
+    cv.Schema({
+        cv.Required(CONF_INDEX): cv.hex_uint8_t,
+        cv.Optional(CONF_SIGNED, default=False): cv.boolean,
+        cv.Required(CONF_MIN_VALUE): cv.int_,
+        cv.Required(CONF_MAX_VALUE): cv.int_,
+        cv.Optional(CONF_MASTER_WRITES, default="pass"): cv.enum(TSP_MASTER_WRITES, lower=True),
+        cv.Optional(CONF_GUARD, default=False): cv.boolean,
+        # Pending reads younger than the 1 min cache timeout are skipped, so polling faster never reads
+        cv.Optional(CONF_POLL_INTERVAL, default="5min"): cv.All(
+            cv.positive_time_period_milliseconds, cv.Range(min=cv.TimePeriod(minutes=1))
+        ),
+        cv.Optional(CONF_SENSOR): sensor.sensor_schema(
+            accuracy_decimals=0,
+            state_class=STATE_CLASS_MEASUREMENT,
+        ),
+        cv.Optional(CONF_NUMBER): number.number_schema(OpenthermNumber),
+    }),
+    validate_tsp_range,
+)
 
 # Climate types mapping
 CLIMATE_TYPES = {
@@ -178,6 +229,18 @@ CONFIG_SCHEMA = cv.Schema({
         entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
         icon="mdi:alert-circle-outline",
     ),
+    cv.Optional(CONF_REJECTED_FRAMES): sensor.sensor_schema(
+        accuracy_decimals=0,
+        state_class=STATE_CLASS_TOTAL_INCREASING,
+        entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
+        icon="mdi:shield-alert-outline",
+    ),
+    cv.Optional(CONF_FRAME_VALIDATION, default={}): cv.Schema({
+        cv.Optional(CONF_CHECK_SPARE_BITS, default=True): cv.boolean,
+        cv.Optional(CONF_CHECK_RESPONSE_ID, default=True): cv.boolean,
+        cv.Optional(CONF_WRITE_CONFIRMATIONS, default=2): cv.int_range(min=1, max=5),
+    }),
+    cv.Optional(CONF_TSP): cv.ensure_list(TSP_SCHEMA),
     cv.Optional(CONF_FLAME): binary_sensor.binary_sensor_schema(
         device_class=DEVICE_CLASS_HEAT,
     ),
@@ -289,6 +352,39 @@ async def to_code(config):
     if CONF_DROPPED_FRAMES in config:
         sens = await sensor.new_sensor(config[CONF_DROPPED_FRAMES])
         cg.add(var.set_dropped_frames_sensor(sens))
+
+    if CONF_REJECTED_FRAMES in config:
+        sens = await sensor.new_sensor(config[CONF_REJECTED_FRAMES])
+        cg.add(var.set_rejected_frames_sensor(sens))
+
+    validation = config[CONF_FRAME_VALIDATION]
+    cg.add(var.set_check_spare_bits(validation[CONF_CHECK_SPARE_BITS]))
+    cg.add(var.set_check_response_id(validation[CONF_CHECK_RESPONSE_ID]))
+    cg.add(var.set_write_confirmations(validation[CONF_WRITE_CONFIRMATIONS]))
+
+    for tsp in config.get(CONF_TSP, []):
+        sens = await sensor.new_sensor(tsp[CONF_SENSOR]) if CONF_SENSOR in tsp else cg.nullptr
+        num = (
+            await number.new_number(
+                tsp[CONF_NUMBER],
+                min_value=tsp[CONF_MIN_VALUE],
+                max_value=tsp[CONF_MAX_VALUE],
+                step=1,
+            )
+            if CONF_NUMBER in tsp
+            else cg.nullptr
+        )
+        cg.add(var.add_tsp(
+            tsp[CONF_INDEX],
+            tsp[CONF_SIGNED],
+            tsp[CONF_MIN_VALUE],
+            tsp[CONF_MAX_VALUE],
+            tsp[CONF_MASTER_WRITES],
+            tsp[CONF_GUARD],
+            tsp[CONF_POLL_INTERVAL],
+            sens,
+            num,
+        ))
 
     # Register binary sensors
     if CONF_FLAME in config:

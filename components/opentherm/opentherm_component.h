@@ -3,8 +3,10 @@
 #include "esphome/core/component.h"
 #include "esphome/components/sensor/sensor.h"
 #include "esphome/components/binary_sensor/binary_sensor.h"
+#include "esphome/core/preferences.h"
 #include "OpenTherm.h"
 #include "opentherm_climate.h"
+#include "opentherm_number.h"
 #include <map>
 #include <vector>
 
@@ -24,6 +26,13 @@ namespace esphome
     constexpr auto HOT_WATER = ClimateType::HOT_WATER;
     constexpr auto HEATING_WATER = ClimateType::HEATING_WATER;
     constexpr auto ROOM = ClimateType::ROOM;
+
+    enum class TspMasterWrites : uint8_t
+    {
+      PASS,
+      VALIDATE,
+      BLOCK
+    };
 
     class OpenthermClimate;
 
@@ -64,6 +73,14 @@ namespace esphome
       void set_master_ot_version_sensor(sensor::Sensor *sensor) { master_ot_version_sensor_ = sensor; }
       void set_slave_ot_version_sensor(sensor::Sensor *sensor) { slave_ot_version_sensor_ = sensor; }
       void set_dropped_frames_sensor(sensor::Sensor *sensor) { dropped_frames_sensor_ = sensor; }
+      void set_rejected_frames_sensor(sensor::Sensor *sensor) { rejected_frames_sensor_ = sensor; }
+
+      // Frame validation
+      void set_check_spare_bits(bool check) { check_spare_bits_ = check; }
+      void set_check_response_id(bool check) { check_response_id_ = check; }
+      void set_write_confirmations(uint8_t confirmations) { write_confirmations_ = confirmations; }
+      void add_tsp(uint8_t index, bool is_signed, int min_value, int max_value, TspMasterWrites master_writes,
+                   bool guard, uint32_t poll_interval, sensor::Sensor *sensor, OpenthermNumber *number);
 
       // Binary sensor setters
       void set_flame_sensor(binary_sensor::BinarySensor *sensor) { flame_ = sensor; }
@@ -128,6 +145,7 @@ namespace esphome
       sensor::Sensor *master_ot_version_sensor_{nullptr};
       sensor::Sensor *slave_ot_version_sensor_{nullptr};
       sensor::Sensor *dropped_frames_sensor_{nullptr};
+      sensor::Sensor *rejected_frames_sensor_{nullptr};
 
       // Binary Sensors
       binary_sensor::BinarySensor *flame_{nullptr};
@@ -191,14 +209,44 @@ namespace esphome
       struct PendingFetch {
         CachedValue *cache;
         OpenThermMessageID id;
+        uint16_t data;
       };
       std::vector<PendingFetch> pending_fetches_;
       unsigned long last_relay_ms_{0};
 
       // Thermostat frames not forwarded because the library reported them INVALID or TIMEOUT
       uint32_t dropped_frames_{0};
-      // Last data the thermostat wrote per data-id, to log unexpected writes
-      std::map<uint8_t, uint16_t> thermostat_writes_;
+      // Frames with valid parity rejected by checkThermostatWrite/isValidReply/spare bits
+      uint32_t rejected_frames_{0};
+      bool check_spare_bits_{true};
+      bool check_response_id_{true};
+      uint8_t write_confirmations_{2};
+      // Last WRITE data passed to the boiler, keyed by data-id << 8 (| TSP index for data-id 11)
+      std::map<uint16_t, uint16_t> thermostat_writes_;
+      struct PendingWrite {
+        uint16_t data;
+        uint8_t count;
+      };
+      std::map<uint16_t, PendingWrite> pending_writes_;
+
+      // Manufacturer-specific transparent slave parameters (Data-ID 11), configured in YAML
+      struct TspParam {
+        uint8_t index;
+        bool is_signed;
+        int min_value;
+        int max_value;
+        TspMasterWrites master_writes;
+        bool guard;
+        uint32_t poll_interval;
+        sensor::Sensor *sensor;
+        OpenthermNumber *number;
+        CachedValue cache;  // raw 16-bit READ_ACK data
+        unsigned long checked_at{0};
+        int16_t last_good{0};
+        bool has_last_good{false};
+        ESPPreferenceObject pref;
+      };
+      std::vector<TspParam> tsp_params_;
 
       const unsigned long CACHE_TIMEOUT_{60000};  // 1 minute in ms
       const unsigned long MIN_FETCH_INTERVAL_{5000};  // Minimum 5s between fetch requests for same sensor
@@ -207,8 +255,16 @@ namespace esphome
 
       // Returns cached value; queues a boiler read if stale (sent later by fetchPendingValue)
       float getCachedOrFetch(CachedValue &cache, OpenThermMessageID msg_id);
+      void queueFetch(CachedValue &cache, OpenThermMessageID msg_id, uint16_t data);
       void fetchPendingValue();
-      void logThermostatWrite(unsigned long request);
+      bool checkThermostatWrite(unsigned long request);
+      bool isValidReply(unsigned long request, unsigned long response) const;
+      void rejectFrame(unsigned long frame, const char *reason);
+      TspParam *findTsp(uint8_t index);
+      int tspValue(const TspParam &tsp, uint16_t data) const;
+      void checkTsp(TspParam &tsp);
+      bool writeTsp(TspParam &tsp, int value);
+      void rememberTsp(TspParam &tsp, int value);
       float readGenericSensorValue(GenericReadSensor &read_sensor);
       float decodeMessageValue(unsigned long response, OpenThermMessageID id);
       ValueEncoding valueEncodingForMessage(OpenThermMessageID id) const;
