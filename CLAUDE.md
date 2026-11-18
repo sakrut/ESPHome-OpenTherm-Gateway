@@ -389,7 +389,7 @@ const unsigned long THERMOSTAT_SILENT_{3000};     // no thermostat traffic for 3
 - Parity passes for ~50% of corrupted frames (root cause of the Beretta heating curve jumping to about -100: a corrupted `WRITE ID 11` TSP 0xF0 frame landing on 0xFA). `frame_validation` (defaults on, OT 2.2 rules) adds:
   - `check_spare_bits`: request with bits 27..24 set is rejected; same for responses.
   - `check_response_id`: boiler response must be a response type with the request's Data-ID (and the requested index for a TSP READ_ACK), else it is not relayed. `isValidReply()` implements this; the gateway's own queued reads use it too.
-  - `write_confirmations` (default 2, 1 = off): a changed WRITE to Data-ID 1, 4, 11, 13, 14, 56, 57 or >=128 is forwarded only after that many identical frames (`checkThermostatWrite()`). The first gets no answer; the thermostat retries. A pending write replaced by different data logs WARN "Discarded unconfirmed" (corruption signature). Pending map capped at 8.
+  - `write_confirmations` (default 2, 1 = off): a changed WRITE to a persistent parameter (Data-ID 11, 13, 14, 56, 57 or >=128) is forwarded only after that many identical frames within `CONFIRM_WINDOW_` (30 s) (`checkThermostatWrite()`). The first gets no answer; the thermostat retries. TSet (1, rewritten every cycle, self-heals) and Command (4, one-shot) are not held. A pending write replaced by different data or expired logs WARN "Discarded unconfirmed" (corruption signature). Pending map capped at 8, oldest evicted.
 - Rejected frames are not forwarded/answered, log WARN `Rejected frame 0x... (reason)` and increment optional `rejected_frames` (diagnostic, `total_increasing`).
 - Validation runs on the original thermostat frame, before any rewrite.
 

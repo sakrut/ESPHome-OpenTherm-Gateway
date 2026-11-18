@@ -95,7 +95,6 @@ TSP_SCHEMA = cv.All(
         cv.Optional(CONF_SIGNED, default=False): cv.boolean,
         cv.Required(CONF_MIN_VALUE): cv.int_,
         cv.Required(CONF_MAX_VALUE): cv.int_,
-        # Pending reads younger than the 1 min cache timeout are skipped, so polling faster never reads
         cv.Optional(CONF_POLL_INTERVAL, default="5min"): cv.All(
             cv.positive_time_period_milliseconds, cv.Range(min=cv.TimePeriod(minutes=1))
         ),

@@ -13,8 +13,6 @@ namespace esphome
     {
       switch (id)
       {
-        case 1:  // TSet
-        case 4:  // Command
         case 11: // TSP
         case 13: // FHB
         case 14: // MaxRelModLevelSetting
@@ -568,8 +566,11 @@ namespace esphome
       bool is_tsp = id == static_cast<uint8_t>(OpenThermMessageID::TSPindexTSPvalue);
 
       uint16_t key = (id << 8) | (is_tsp ? data >> 8 : 0);
+      unsigned long now = millis();
       auto pending = pending_writes_.find(key);
-      if (pending != pending_writes_.end() && pending->second.data != data)
+      // A stale pending write must not pair with a later identical corruption
+      if (pending != pending_writes_.end() &&
+          (pending->second.data != data || now - pending->second.since > CONFIRM_WINDOW_))
       {
         rejected_frames_++;
         ESP_LOGW(TAG, "Discarded unconfirmed thermostat WRITE data-id %u: 0x%04X", id, pending->second.data);
@@ -583,10 +584,17 @@ namespace esphome
       {
         if (pending == pending_writes_.end())
         {
-          // shortcut: a corrupt frame whose key never repeats stays pending; the cap bounds memory
           if (pending_writes_.size() >= 8)
-            pending_writes_.erase(pending_writes_.begin());
-          pending = pending_writes_.emplace(key, PendingWrite{data, 0}).first;
+          {
+            auto oldest = pending_writes_.begin();
+            for (auto it = pending_writes_.begin(); it != pending_writes_.end(); ++it)
+            {
+              if (now - it->second.since > now - oldest->second.since)
+                oldest = it;
+            }
+            pending_writes_.erase(oldest);
+          }
+          pending = pending_writes_.emplace(key, PendingWrite{data, 0, now}).first;
         }
         if (++pending->second.count < write_confirmations_)
         {
@@ -629,16 +637,6 @@ namespace esphome
       rejected_frames_++;
       ESP_LOGW(TAG, "Rejected frame 0x%08lX (%s), total rejected: %u", frame, reason,
                static_cast<unsigned>(rejected_frames_));
-    }
-
-    OpenthermComponent::TspParam *OpenthermComponent::findTsp(uint8_t index)
-    {
-      for (auto &tsp : tsp_params_)
-      {
-        if (tsp.index == index)
-          return &tsp;
-      }
-      return nullptr;
     }
 
     int OpenthermComponent::tspValue(const TspParam &tsp, uint16_t data) const

@@ -218,6 +218,7 @@ namespace esphome
       struct PendingWrite {
         uint16_t data;
         uint8_t count;
+        unsigned long since;
       };
       std::map<uint16_t, PendingWrite> pending_writes_;
 
@@ -239,6 +240,7 @@ namespace esphome
       const unsigned long MIN_FETCH_INTERVAL_{5000};  // Minimum 5s between fetch requests for same sensor
       const unsigned long FETCH_WINDOW_{200};  // Own reads start at most 200ms after a relayed thermostat frame
       const unsigned long THERMOSTAT_SILENT_{3000};  // No thermostat traffic for 3s: read without waiting
+      const unsigned long CONFIRM_WINDOW_{30000};  // Repeats of a held WRITE must arrive within 30s
 
       // Returns cached value; queues a boiler read if stale (sent later by fetchPendingValue)
       float getCachedOrFetch(CachedValue &cache, OpenThermMessageID msg_id);
@@ -247,7 +249,6 @@ namespace esphome
       bool checkThermostatWrite(unsigned long request);
       bool isValidReply(unsigned long request, unsigned long response) const;
       void rejectFrame(unsigned long frame, const char *reason);
-      TspParam *findTsp(uint8_t index);
       int tspValue(const TspParam &tsp, uint16_t data) const;
       void checkTsp(TspParam &tsp);
       bool writeTsp(TspParam &tsp, int value);

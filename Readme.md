@@ -201,7 +201,7 @@ opentherm:
     write_confirmations: 2     # 1 = off
 ```
 
-- A changed WRITE to Data-ID 1, 4, 11, 13, 14, 56, 57 or >=128 reaches the boiler only after `write_confirmations` identical frames (per TSP index for Data-ID 11). The first frame gets no answer; the thermostat retries.
+- A changed WRITE to a persistent boiler parameter (Data-ID 11, 13, 14, 56, 57 or >=128) reaches the boiler only after `write_confirmations` identical frames within 30 s (per TSP index for Data-ID 11). The first frame gets no answer; the thermostat retries. TSet (1) is rewritten every cycle and commands (4) are one-shot, so they are not held.
 - Rejected frames are not forwarded or answered, logged at WARN and counted in `rejected_frames`.
 
 ### Transparent Slave Parameters (TSP)
