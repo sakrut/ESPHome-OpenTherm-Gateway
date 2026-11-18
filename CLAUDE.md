@@ -32,7 +32,7 @@ The component intercepts OpenTherm requests from the thermostat, forwards them t
 Key implementation details:
 - Two OpenTherm library instances: `ot_` (master) and `slave_ot_` (slave)
 - Static singleton pattern (`instance_`) for interrupt handlers
-- `processRequest()` is the core intercept function that forwards requests and caches sensor values. It forwards only frames the library reports as `SUCCESS`; `INVALID`/`TIMEOUT` frames (partial or late) are dropped and counted, because forwarding them sends random type/id/data to the boiler
+- `processRequest()` is the core intercept function that forwards requests and caches sensor values. It forwards only frames the library reports as `SUCCESS`; `INVALID`/`TIMEOUT` frames (partial or late) are dropped and counted, because forwarding them sends random type/id/data to the boiler. `SUCCESS` frames then pass `frame_validation` (see Frame Safety) before forwarding
 - `last_status_response_` caches the most recent status for sensor publishing
 - Component polls every 30 seconds (PollingComponent base)
 - **Smart caching**: Values intercepted from thermostat↔boiler communication are cached with 1-minute timeout
@@ -92,6 +92,7 @@ The GitHub Actions workflow (`.github/workflows/build.yml`) automatically builds
 2. Installs the latest ESPHome release from PyPI (avoids Docker Hub pull rate limits; catches upstream breaking changes early)
 3. Validates the component compiles successfully
 4. Compiles `tests/minimal_hub/minimal_hub_test.yaml` (hub-only config with no top-level platform sections, regression test for issue #17)
+5. Compiles `tests/tsp/tsp_test.yaml` (`frame_validation`, `rejected_frames`, `tsp` with sensor/number)
 
 The release workflow (`.github/workflows/release.yml`) runs on `v*` tag push: it reuses the build workflow (`workflow_call`) and, only if that passes, creates the GitHub release with auto-generated notes. It sets `permissions: contents: write` because the repo's default `GITHUB_TOKEN` is read-only. To release, push a tag (`git tag v2.4.0 && git push origin v2.4.0`) and edit the release text afterwards if needed; do not create the release manually first.
 
@@ -99,7 +100,7 @@ The release workflow (`.github/workflows/release.yml`) runs on `v*` tag push: it
 
 - ESPHome 2022.5.0 or newer
 - OpenTherm Library 1.1.4 (automatically installed via `cg.add_library()`)
-- Required ESPHome platforms: binary_sensor, sensor, climate, button (auto-loaded via `AUTO_LOAD` in `__init__.py`; no empty top-level sections needed)
+- Required ESPHome platforms: binary_sensor, sensor, climate, button, number (auto-loaded via `AUTO_LOAD` in `__init__.py`; no empty top-level sections needed)
 
 ## OpenTherm Protocol Documentation
 
@@ -384,13 +385,36 @@ const unsigned long THERMOSTAT_SILENT_{3000};     // no thermostat traffic for 3
 - Thermostat frames with library status `INVALID` (partial Manchester frame) or `TIMEOUT` (late/stuck) are **not forwarded**. Each one logs `WARN Dropped thermostat frame 0x... (INVALID|TIMEOUT)` and increments the optional `dropped_frames` sensor (diagnostic, `total_increasing`), so HA history records them without a log listener.
 - A boiler response that is `0` (no answer) or has bad parity is not relayed to the thermostat; the thermostat times out and retries.
 - `last_status_response_` is only updated from valid Status responses.
-- Every thermostat WRITE-DATA frame is tracked per data-id: the first write to an id logs at WARN (expected once per id after boot), changed data logs at DEBUG. A WARN for a new id long after boot points to a corrupted frame reaching the boiler.
+- Every thermostat WRITE-DATA frame is tracked per data-id (per TSP index for Data-ID 11): the first write logs at WARN (expected once per key after boot), changed data logs at DEBUG. A WARN for a new key long after boot points to a corrupted frame.
+- Parity passes for ~50% of corrupted frames (root cause of the Beretta heating curve jumping to about -100: a corrupted `WRITE ID 11` TSP 0xF0 frame landing on 0xFA). `frame_validation` (defaults on, OT 2.2 rules) adds:
+  - `check_spare_bits`: request with bits 27..24 set is rejected; same for responses.
+  - `check_response_id`: boiler response must be a response type with the request's Data-ID (and the requested index for a TSP READ_ACK), else it is not relayed. `isValidReply()` implements this; the gateway's own queued reads use it too.
+  - `write_confirmations` (default 2, 1 = off): a changed WRITE to a persistent parameter (Data-ID 11, 13, 14, 56, 57 or >=128) is forwarded only after that many identical frames within `CONFIRM_WINDOW_` (30 s) (`checkThermostatWrite()`). The first gets no answer; the thermostat retries. TSet (1, rewritten every cycle, self-heals) and Command (4, one-shot) are not held. A pending write replaced by different data or expired logs WARN "Discarded unconfirmed" (corruption signature). Pending map capped at 8, oldest evicted.
+- Rejected frames are not forwarded/answered, log WARN `Rejected frame 0x... (reason)` and increment optional `rejected_frames` (diagnostic, `total_increasing`).
+- Validation runs on the original thermostat frame, before any rewrite.
 
 ```yaml
 opentherm:
   dropped_frames:
     name: "Dropped Frames"
+  rejected_frames:
+    name: "Rejected Frames"
+  frame_validation:
+    check_spare_bits: true
+    check_response_id: true
+    write_confirmations: 2
 ```
+
+### Transparent Slave Parameters (opt-in)
+
+TSP indexes are manufacturer-specific, so `tsp:` entries are never enabled by default and MemberID is not used for auto-detection. Per entry (`TspParam` in `tsp_params_`):
+- `index`, `signed` (int8 decode), `min_value`/`max_value`.
+- `poll_interval` (default 5min, min 1min): READ queued through `pending_fetches_` (`PendingFetch.data` = index << 8), result checked in `update()` by `checkTsp()`.
+- `sensor`, `number` (`OpenthermNumber`, header-only, control callback set in `setup()`): `writeTsp()` writes WRITE ID 11, requires WRITE_ACK, reads back to verify. Blocking, like climate setpoint writes.
+- Thermostat WRITE ID 11 to a configured index with a value outside min..max is rejected in `checkThermostatWrite()` before confirmations (repetition does not help a bad value).
+- No on-device guard (owner decision): an out-of-range read logs WARN, the sensor gets the real value, the number gets NAN (unknown); restoring is an HA automation triggered on the sensor.
+
+Known mapping: Beretta Exclusive Green (MemberID 31), index 0xFA = heating curve offset, int8, -5..+5 (found by test, no public doc).
 
 ## Debugging and Common Issues
 
@@ -437,7 +461,7 @@ logger:
 - **Status requests** are periodic and critical - they update `last_status_response_` which feeds all binary sensors
 - **Temperature reads** use smart caching - if thermostat requested the value recently (<1 min), cached value is used
 - **Temperature writes** happen immediately when climate entity target is changed, with immediate verification
-- The component doesn't modify requests from the thermostat, it only intercepts, forwards, and caches responses (corrupt INVALID/TIMEOUT frames are dropped, not forwarded)
+- The component doesn't modify requests from the thermostat, it only intercepts, forwards, and caches responses (corrupt INVALID/TIMEOUT frames are dropped; frames failing `frame_validation` or unconfirmed protected writes are not forwarded)
 
 ### Temperature Setpoint Verification
 

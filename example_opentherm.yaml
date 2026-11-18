@@ -124,6 +124,21 @@ opentherm:
   # Thermostat frames dropped as corrupt (INVALID/TIMEOUT); rising count = wiring/noise problem
   dropped_frames:
     name: "${friendly_name} Dropped Frames"
+
+  # Parity-valid frames rejected by frame_validation (spare bits, response id, unconfirmed writes)
+  rejected_frames:
+    name: "${friendly_name} Rejected Frames"
+
+  # Manufacturer-specific TSP; index 0xFA = heating curve offset on Beretta Exclusive Green only
+  # tsp:
+  #   - index: 0xFA
+  #     signed: true
+  #     min_value: -5
+  #     max_value: 5
+  #     sensor:
+  #       name: "${friendly_name} Heating Curve Offset"
+  #     number:
+  #       name: "${friendly_name} Heating Curve Offset"
     
   pressure:
     name: "${friendly_name} System Pressure"

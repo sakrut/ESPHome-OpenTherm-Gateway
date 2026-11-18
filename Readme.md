@@ -72,6 +72,8 @@ opentherm:
     name: "Exhaust Temperature"
   dropped_frames:
     name: "Dropped Frames"  # Corrupt thermostat frames not forwarded to boiler
+  rejected_frames:
+    name: "Rejected Frames"  # Parity-valid frames failing frame_validation
   heating_target_temperature:
     name: "Heating Target"  # What boiler actually uses
   room_temperature:
@@ -192,6 +194,46 @@ button:
 - Own reads are queued and sent between thermostat frames (never block the thermostat)
 - Corrupt thermostat frames (INVALID/TIMEOUT) are dropped, not forwarded, and counted in `dropped_frames`
 - **Result: ~80-90% less bus traffic**
+
+### Frame Validation
+
+Parity catches only half of corrupted frames. Defaults (OpenTherm 2.2 rules, all boilers):
+
+```yaml
+opentherm:
+  rejected_frames:
+    name: "Rejected Frames"
+  frame_validation:
+    check_spare_bits: true     # request/response bits 27..24 must be 0
+    check_response_id: true    # boiler response Data-ID must match the request
+    write_confirmations: 2     # 1 = off
+```
+
+- A changed WRITE to a persistent boiler parameter (Data-ID 11, 13, 14, 56, 57 or >=128) reaches the boiler only after `write_confirmations` identical frames within 30 s (per TSP index for Data-ID 11). The first frame gets no answer; the thermostat retries. TSet (1) is rewritten every cycle and commands (4) are one-shot, so they are not held.
+- Rejected frames are not forwarded or answered, logged at WARN and counted in `rejected_frames`.
+
+### Transparent Slave Parameters (TSP)
+
+TSP indexes (Data-ID 11) are manufacturer-specific, so nothing is enabled by default. Example: Beretta Exclusive Green / Riello (MemberID 31), heating curve offset at index 0xFA, signed, -5..+5:
+
+```yaml
+opentherm:
+  tsp:
+    - index: 0xFA
+      signed: true
+      min_value: -5
+      max_value: 5
+      poll_interval: 5min      # min 1min
+      sensor:
+        name: "Heating Curve Offset"
+      number:
+        name: "Heating Curve Offset"
+```
+
+- `sensor`: value read every `poll_interval`, between thermostat frames.
+- `number`: HA control; writes, then reads back to verify. Values outside min..max are refused.
+- Thermostat writes to the index outside min..max are rejected (counted in `rejected_frames`); in-range changes need `write_confirmations` like any Data-ID 11 write.
+- Boiler value outside min..max: logged at WARN, `sensor` shows the real value, `number` shows unknown. A restore automation in HA must trigger on the `sensor`, then set the `number`.
 
 ## Troubleshooting
 
