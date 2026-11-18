@@ -209,17 +209,12 @@ opentherm:
 TSP indexes (Data-ID 11) are manufacturer-specific, so nothing is enabled by default. Example: Beretta Exclusive Green / Riello (MemberID 31), heating curve offset at index 0xFA, signed, -5..+5:
 
 ```yaml
-esp8266:
-  restore_from_flash: true     # keeps the last good TSP value across reboots
-
 opentherm:
   tsp:
     - index: 0xFA
       signed: true
       min_value: -5
       max_value: 5
-      master_writes: validate  # pass | validate (range) | block
-      guard: true              # value read outside min..max: write back the last good one
       poll_interval: 5min      # min 1min
       sensor:
         name: "Heating Curve Offset"
@@ -229,8 +224,8 @@ opentherm:
 
 - `sensor`: value read every `poll_interval`, between thermostat frames.
 - `number`: HA control; writes, then reads back to verify. Values outside min..max are refused.
-- `master_writes: validate` rejects thermostat writes outside min..max; in-range writes still need `write_confirmations`.
-- `guard` restores the last in-range value seen (stored in preferences) and logs WARN.
+- Thermostat writes to the index pass `frame_validation` like any Data-ID 11 write (2 identical frames for a change).
+- Out-of-range values are logged at WARN; restore them with an HA automation on the sensor that sets the number.
 
 ## Troubleshooting
 

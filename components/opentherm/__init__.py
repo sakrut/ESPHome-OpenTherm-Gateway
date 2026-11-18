@@ -72,8 +72,6 @@ CONF_CHECK_RESPONSE_ID = "check_response_id"
 CONF_WRITE_CONFIRMATIONS = "write_confirmations"
 CONF_TSP = "tsp"
 CONF_SIGNED = "signed"
-CONF_MASTER_WRITES = "master_writes"
-CONF_GUARD = "guard"
 CONF_POLL_INTERVAL = "poll_interval"
 
 # Generate namespaces
@@ -82,12 +80,6 @@ OpenthermComponent = opentherm_ns.class_("OpenthermComponent", cg.Component)
 OpenthermClimate = opentherm_ns.class_("OpenthermClimate", climate.Climate, cg.Component)
 OpenthermNumber = opentherm_ns.class_("OpenthermNumber", number.Number)
 ClimateType = opentherm_ns.enum("ClimateType")
-TspMasterWrites = opentherm_ns.enum("TspMasterWrites", is_class=True)
-TSP_MASTER_WRITES = {
-    "pass": TspMasterWrites.PASS,
-    "validate": TspMasterWrites.VALIDATE,
-    "block": TspMasterWrites.BLOCK,
-}
 
 
 def validate_tsp_range(config):
@@ -103,8 +95,6 @@ TSP_SCHEMA = cv.All(
         cv.Optional(CONF_SIGNED, default=False): cv.boolean,
         cv.Required(CONF_MIN_VALUE): cv.int_,
         cv.Required(CONF_MAX_VALUE): cv.int_,
-        cv.Optional(CONF_MASTER_WRITES, default="pass"): cv.enum(TSP_MASTER_WRITES, lower=True),
-        cv.Optional(CONF_GUARD, default=False): cv.boolean,
         # Pending reads younger than the 1 min cache timeout are skipped, so polling faster never reads
         cv.Optional(CONF_POLL_INTERVAL, default="5min"): cv.All(
             cv.positive_time_period_milliseconds, cv.Range(min=cv.TimePeriod(minutes=1))
@@ -379,8 +369,6 @@ async def to_code(config):
             tsp[CONF_SIGNED],
             tsp[CONF_MIN_VALUE],
             tsp[CONF_MAX_VALUE],
-            tsp[CONF_MASTER_WRITES],
-            tsp[CONF_GUARD],
             tsp[CONF_POLL_INTERVAL],
             sens,
             num,

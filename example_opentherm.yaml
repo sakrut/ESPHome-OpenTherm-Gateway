@@ -135,8 +135,6 @@ opentherm:
   #     signed: true
   #     min_value: -5
   #     max_value: 5
-  #     master_writes: validate
-  #     guard: true
   #     sensor:
   #       name: "${friendly_name} Heating Curve Offset"
   #     number:

@@ -3,7 +3,6 @@
 #include "esphome/core/component.h"
 #include "esphome/components/sensor/sensor.h"
 #include "esphome/components/binary_sensor/binary_sensor.h"
-#include "esphome/core/preferences.h"
 #include "OpenTherm.h"
 #include "opentherm_climate.h"
 #include "opentherm_number.h"
@@ -26,13 +25,6 @@ namespace esphome
     constexpr auto HOT_WATER = ClimateType::HOT_WATER;
     constexpr auto HEATING_WATER = ClimateType::HEATING_WATER;
     constexpr auto ROOM = ClimateType::ROOM;
-
-    enum class TspMasterWrites : uint8_t
-    {
-      PASS,
-      VALIDATE,
-      BLOCK
-    };
 
     class OpenthermClimate;
 
@@ -79,8 +71,8 @@ namespace esphome
       void set_check_spare_bits(bool check) { check_spare_bits_ = check; }
       void set_check_response_id(bool check) { check_response_id_ = check; }
       void set_write_confirmations(uint8_t confirmations) { write_confirmations_ = confirmations; }
-      void add_tsp(uint8_t index, bool is_signed, int min_value, int max_value, TspMasterWrites master_writes,
-                   bool guard, uint32_t poll_interval, sensor::Sensor *sensor, OpenthermNumber *number);
+      void add_tsp(uint8_t index, bool is_signed, int min_value, int max_value, uint32_t poll_interval,
+                   sensor::Sensor *sensor, OpenthermNumber *number);
 
       // Binary sensor setters
       void set_flame_sensor(binary_sensor::BinarySensor *sensor) { flame_ = sensor; }
@@ -235,16 +227,11 @@ namespace esphome
         bool is_signed;
         int min_value;
         int max_value;
-        TspMasterWrites master_writes;
-        bool guard;
         uint32_t poll_interval;
         sensor::Sensor *sensor;
         OpenthermNumber *number;
         CachedValue cache;  // raw 16-bit READ_ACK data
         unsigned long checked_at{0};
-        int16_t last_good{0};
-        bool has_last_good{false};
-        ESPPreferenceObject pref;
       };
       std::vector<TspParam> tsp_params_;
 
@@ -264,7 +251,6 @@ namespace esphome
       int tspValue(const TspParam &tsp, uint16_t data) const;
       void checkTsp(TspParam &tsp);
       bool writeTsp(TspParam &tsp, int value);
-      void rememberTsp(TspParam &tsp, int value);
       float readGenericSensorValue(GenericReadSensor &read_sensor);
       float decodeMessageValue(unsigned long response, OpenThermMessageID id);
       ValueEncoding valueEncodingForMessage(OpenThermMessageID id) const;

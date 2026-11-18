@@ -92,7 +92,7 @@ The GitHub Actions workflow (`.github/workflows/build.yml`) automatically builds
 2. Installs the latest ESPHome release from PyPI (avoids Docker Hub pull rate limits; catches upstream breaking changes early)
 3. Validates the component compiles successfully
 4. Compiles `tests/minimal_hub/minimal_hub_test.yaml` (hub-only config with no top-level platform sections, regression test for issue #17)
-5. Compiles `tests/tsp_guard/tsp_guard_test.yaml` (`frame_validation`, `rejected_frames`, `tsp` with sensor/number/guard)
+5. Compiles `tests/tsp/tsp_test.yaml` (`frame_validation`, `rejected_frames`, `tsp` with sensor/number)
 
 The release workflow (`.github/workflows/release.yml`) runs on `v*` tag push: it reuses the build workflow (`workflow_call`) and, only if that passes, creates the GitHub release with auto-generated notes. It sets `permissions: contents: write` because the repo's default `GITHUB_TOKEN` is read-only. To release, push a tag (`git tag v2.4.0 && git push origin v2.4.0`) and edit the release text afterwards if needed; do not create the release manually first.
 
@@ -409,10 +409,9 @@ opentherm:
 
 TSP indexes are manufacturer-specific, so `tsp:` entries are never enabled by default and MemberID is not used for auto-detection. Per entry (`TspParam` in `tsp_params_`):
 - `index`, `signed` (int8 decode), `min_value`/`max_value`.
-- `master_writes`: `pass` (default) | `validate` (thermostat writes outside min..max rejected; in-range still need confirmations) | `block`.
 - `poll_interval` (default 5min, min 1min): READ queued through `pending_fetches_` (`PendingFetch.data` = index << 8), result checked in `update()` by `checkTsp()`.
 - `sensor`, `number` (`OpenthermNumber`, header-only, control callback set in `setup()`): `writeTsp()` writes WRITE ID 11, requires WRITE_ACK, reads back to verify. Blocking, like climate setpoint writes.
-- `guard`: read value outside min..max → `writeTsp(last_good)`. `last_good` = last in-range value read/written, persisted via `global_preferences` (ESP8266 needs `restore_from_flash: true` to survive power loss).
+- No on-device guard: an out-of-range read logs WARN and is published to the sensor; restoring is left to an HA automation (sensor → number).
 
 Known mapping: Beretta Exclusive Green (MemberID 31), index 0xFA = heating curve offset, int8, -5..+5 (found by test, no public doc).
 

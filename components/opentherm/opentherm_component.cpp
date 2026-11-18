@@ -1,5 +1,4 @@
 #include "opentherm_component.h"
-#include "esphome/core/helpers.h"
 #include "esphome/core/log.h"
 
 namespace esphome
@@ -48,16 +47,13 @@ namespace esphome
     }
 
     void OpenthermComponent::add_tsp(uint8_t index, bool is_signed, int min_value, int max_value,
-                                     TspMasterWrites master_writes, bool guard, uint32_t poll_interval,
-                                     sensor::Sensor *sensor, OpenthermNumber *number)
+                                     uint32_t poll_interval, sensor::Sensor *sensor, OpenthermNumber *number)
     {
       TspParam tsp;
       tsp.index = index;
       tsp.is_signed = is_signed;
       tsp.min_value = min_value;
       tsp.max_value = max_value;
-      tsp.master_writes = master_writes;
-      tsp.guard = guard;
       tsp.poll_interval = poll_interval;
       tsp.sensor = sensor;
       tsp.number = number;
@@ -92,13 +88,6 @@ namespace esphome
       // tsp_params_ is complete here, so references into it stay valid
       for (auto &tsp : tsp_params_)
       {
-        tsp.pref = global_preferences->make_preference<int16_t>(fnv1_hash(str_sprintf("opentherm_tsp_%u", tsp.index)));
-        int16_t saved;
-        if (tsp.pref.load(&saved) && saved >= tsp.min_value && saved <= tsp.max_value)
-        {
-          tsp.last_good = saved;
-          tsp.has_last_good = true;
-        }
         if (tsp.number != nullptr)
           tsp.number->set_control_callback([this, &tsp](float value)
                                            { this->writeTsp(tsp, static_cast<int>(lroundf(value))); });
@@ -578,22 +567,6 @@ namespace esphome
       uint16_t data = request & 0xFFFF;
       bool is_tsp = id == static_cast<uint8_t>(OpenThermMessageID::TSPindexTSPvalue);
 
-      TspParam *tsp = is_tsp ? findTsp(data >> 8) : nullptr;
-      if (tsp != nullptr && tsp->master_writes == TspMasterWrites::BLOCK)
-      {
-        rejectFrame(request, "TSP write blocked");
-        return false;
-      }
-      if (tsp != nullptr && tsp->master_writes == TspMasterWrites::VALIDATE)
-      {
-        int value = tspValue(*tsp, data);
-        if (value < tsp->min_value || value > tsp->max_value)
-        {
-          rejectFrame(request, "TSP write out of range");
-          return false;
-        }
-      }
-
       uint16_t key = (id << 8) | (is_tsp ? data >> 8 : 0);
       auto pending = pending_writes_.find(key);
       if (pending != pending_writes_.end() && pending->second.data != data)
@@ -683,24 +656,10 @@ namespace esphome
       if (tsp.sensor != nullptr)
         tsp.sensor->publish_state(value);
 
-      if (value >= tsp.min_value && value <= tsp.max_value)
-      {
-        rememberTsp(tsp, value);
-        if (tsp.number != nullptr)
-          tsp.number->publish_state(value);
-        return;
-      }
-
-      ESP_LOGW(TAG, "TSP 0x%02X = %d outside [%d, %d]", tsp.index, value, tsp.min_value, tsp.max_value);
-      if (!tsp.guard)
-        return;
-      if (!tsp.has_last_good)
-      {
-        ESP_LOGW(TAG, "TSP 0x%02X: no known good value to restore", tsp.index);
-        return;
-      }
-      ESP_LOGW(TAG, "TSP 0x%02X: restoring %d", tsp.index, tsp.last_good);
-      writeTsp(tsp, tsp.last_good);
+      if (value < tsp.min_value || value > tsp.max_value)
+        ESP_LOGW(TAG, "TSP 0x%02X = %d outside [%d, %d]", tsp.index, value, tsp.min_value, tsp.max_value);
+      else if (tsp.number != nullptr)
+        tsp.number->publish_state(value);
     }
 
     bool OpenthermComponent::writeTsp(TspParam &tsp, int value)
@@ -743,20 +702,10 @@ namespace esphome
         ESP_LOGW(TAG, "TSP 0x%02X read back %d after writing %d", tsp.index, actual, value);
         return false;
       }
-      rememberTsp(tsp, actual);
       if (tsp.number != nullptr)
         tsp.number->publish_state(actual);
       ESP_LOGI(TAG, "TSP 0x%02X verified: %d", tsp.index, actual);
       return true;
-    }
-
-    void OpenthermComponent::rememberTsp(TspParam &tsp, int value)
-    {
-      if (tsp.has_last_good && tsp.last_good == value)
-        return;
-      tsp.last_good = value;
-      tsp.has_last_good = true;
-      tsp.pref.save(&tsp.last_good);
     }
 
     void OpenthermComponent::processCachedResponse(unsigned long response, OpenThermMessageID id)

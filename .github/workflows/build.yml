@@ -29,4 +29,4 @@ jobs:
           echo -e "wifi_ssid: 'wifi_ssid'\nwifi_password: 'wifi_password'\nesphome_fallback_password: 'fallback_password'" > secrets.yaml
       - run: esphome compile build.yaml
       - run: esphome compile tests/minimal_hub/minimal_hub_test.yaml
-      - run: esphome compile tests/tsp_guard/tsp_guard_test.yaml
+      - run: esphome compile tests/tsp/tsp_test.yaml
