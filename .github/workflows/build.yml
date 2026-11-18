@@ -27,6 +27,7 @@ jobs:
           key: platformio-${{ runner.os }}-${{ steps.esphome.outputs.version }}
       - run: |
           echo -e "wifi_ssid: 'wifi_ssid'\nwifi_password: 'wifi_password'\nesphome_fallback_password: 'fallback_password'" > secrets.yaml
+      - run: g++ -std=gnu++20 -Wall -Wextra -I tests/host/stubs -I components/opentherm tests/host/test_gateway.cpp components/opentherm/opentherm_component.cpp components/opentherm/opentherm_climate.cpp -o host_tests && ./host_tests
       - run: esphome compile build.yaml
       - run: esphome compile tests/minimal_hub/minimal_hub_test.yaml
       - run: esphome compile tests/tsp/tsp_test.yaml
