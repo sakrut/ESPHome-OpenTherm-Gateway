@@ -48,7 +48,7 @@ Key implementation details:
 
 Each climate entity uses a callback pattern to communicate temperature changes back to the main component, which then sends OpenTherm WRITE commands.
 
-Climate mode is restored via `restore_state_()` (HEAT on first boot). `heating_water_climate` in **Off** blocks CH: `processRequest()` clears the master CH enable bit (bit 8) in the thermostat's READ Status (Data-ID 0) frame, after frame validation (`buildRequest()` recomputes parity, so rewriting first would hide a corrupted frame). The boiler's Status response echoes the cleared bit back to the thermostat.
+Climate mode is persisted in its own preference key (`mode_pref_`, saved in `control()`), not `restore_state_()`: older firmware saved Off as a no-op, and restoring it after an upgrade would silently block CH. No saved key = HEAT. `heating_water_climate` in **Off** blocks CH: `processRequest()` clears the master CH enable bit (bit 8) in the thermostat's READ Status (Data-ID 0) frame, after frame validation (`buildRequest()` recomputes parity, so rewriting first would hide a corrupted frame). The boiler's Status response echoes the cleared bit back to the thermostat.
 
 ## Build and Test Commands
 

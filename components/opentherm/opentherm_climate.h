@@ -2,6 +2,7 @@
 
 #include "esphome/core/component.h"
 #include "esphome/components/climate/climate.h"
+#include "esphome/core/preferences.h"
 #include <functional>
 
 namespace esphome
@@ -36,9 +37,10 @@ namespace esphome
     protected:
       float default_target_temperature_{0};
       std::function<bool(float)> target_temperature_setter_;
-      ClimateType climate_type_;
+      ClimateType climate_type_{};
       bool target_temperature_initialized_{false};
       bool read_only_{false};
+      ESPPreferenceObject mode_pref_;
     };
 
   } // namespace opentherm

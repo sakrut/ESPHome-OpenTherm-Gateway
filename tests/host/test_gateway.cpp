@@ -31,6 +31,7 @@ struct Gateway
   {
     bus = FakeBus{};
     climate::fake_restore.reset();
+    fake_preferences.clear();
     fake_millis = 10000;
     component.set_rejected_frames_sensor(&rejected);
   }
@@ -279,18 +280,36 @@ static void ch_heat_forwards_status_unchanged()
   CHECK(gw.forwards(frame(READ_DATA, 0, 0x0300)));
 }
 
-static void climate_mode_is_restored()
+static climate::ClimateMode boot_heating_climate()
 {
-  OpenthermClimate fresh;
-  climate::fake_restore.reset();
-  fresh.setup();
-  CHECK(fresh.mode == climate::CLIMATE_MODE_HEAT);
+  OpenthermClimate heating;
+  heating.set_climate_type(ClimateType::HEATING_WATER);
+  heating.setup();
+  return heating.mode;
+}
 
-  OpenthermClimate restored;
-  climate::fake_restore = climate::ClimateDeviceRestoreState{climate::CLIMATE_MODE_OFF};
-  restored.setup();
-  CHECK(restored.mode == climate::CLIMATE_MODE_OFF);
+static void set_heating_mode(climate::ClimateMode mode)
+{
+  OpenthermClimate heating;
+  heating.set_climate_type(ClimateType::HEATING_WATER);
+  heating.setup();
+  climate::ClimateCall call;
+  call.mode = mode;
+  heating.control(call);
+}
+
+static void climate_mode_survives_reboot_but_not_upgrade()
+{
+  fake_preferences.clear();
+  climate::fake_restore = climate::ClimateDeviceRestoreState{climate::CLIMATE_MODE_OFF}; // saved by older firmware
+  CHECK(boot_heating_climate() == climate::CLIMATE_MODE_HEAT);
   climate::fake_restore.reset();
+
+  set_heating_mode(climate::CLIMATE_MODE_OFF);
+  CHECK(boot_heating_climate() == climate::CLIMATE_MODE_OFF);
+  set_heating_mode(climate::CLIMATE_MODE_HEAT);
+  CHECK(boot_heating_climate() == climate::CLIMATE_MODE_HEAT);
+  fake_preferences.clear();
 }
 
 int main()
@@ -312,7 +331,7 @@ int main()
   ch_off_clears_ch_enable_in_status();
   ch_off_does_not_launder_corrupted_status();
   ch_heat_forwards_status_unchanged();
-  climate_mode_is_restored();
+  climate_mode_survives_reboot_but_not_upgrade();
 
   std::printf(failures ? "%d check(s) failed\n" : "all host tests passed\n", failures);
   return failures ? 1 : 0;
