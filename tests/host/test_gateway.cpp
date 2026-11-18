@@ -30,7 +30,6 @@ struct Gateway
   Gateway()
   {
     bus = FakeBus{};
-    climate::fake_restore.reset();
     fake_preferences.clear();
     fake_millis = 10000;
     component.set_rejected_frames_sensor(&rejected);
@@ -274,6 +273,16 @@ static void ch_off_does_not_launder_corrupted_status()
   CHECK(gw.relay(frame(READ_DATA, 0, 0x0300) ^ 0x81000000).empty());
 }
 
+static void status_relayed_before_climate_setup_is_unchanged()
+{
+  Gateway gw;
+  OpenthermClimate heating;
+  heating.set_climate_type(ClimateType::HEATING_WATER);
+  gw.component.register_climate(&heating);
+  gw.start();
+  CHECK(gw.forwards(frame(READ_DATA, 0, 0x0300)));
+}
+
 static void ch_heat_forwards_status_unchanged()
 {
   ClimateGateway gw(climate::CLIMATE_MODE_HEAT);
@@ -301,9 +310,7 @@ static void set_heating_mode(climate::ClimateMode mode)
 static void climate_mode_survives_reboot_but_not_upgrade()
 {
   fake_preferences.clear();
-  climate::fake_restore = climate::ClimateDeviceRestoreState{climate::CLIMATE_MODE_OFF}; // saved by older firmware
   CHECK(boot_heating_climate() == climate::CLIMATE_MODE_HEAT);
-  climate::fake_restore.reset();
 
   set_heating_mode(climate::CLIMATE_MODE_OFF);
   CHECK(boot_heating_climate() == climate::CLIMATE_MODE_OFF);
@@ -331,6 +338,7 @@ int main()
   ch_off_clears_ch_enable_in_status();
   ch_off_does_not_launder_corrupted_status();
   ch_heat_forwards_status_unchanged();
+  status_relayed_before_climate_setup_is_unchanged();
   climate_mode_survives_reboot_but_not_upgrade();
 
   std::printf(failures ? "%d check(s) failed\n" : "all host tests passed\n", failures);

@@ -46,12 +46,6 @@ namespace esphome
       const std::optional<float> &get_target_temperature() const { return target_temperature; }
     };
 
-    struct ClimateDeviceRestoreState
-    {
-      ClimateMode mode;
-    };
-    inline std::optional<ClimateDeviceRestoreState> fake_restore;
-
     class Climate
     {
     public:
@@ -63,9 +57,6 @@ namespace esphome
       void publish_state() {}
       virtual ClimateTraits traits() = 0;
       virtual void control(const ClimateCall &call) = 0;
-
-    protected:
-      std::optional<ClimateDeviceRestoreState> restore_state_() { return fake_restore; }
     };
   } // namespace climate
 } // namespace esphome

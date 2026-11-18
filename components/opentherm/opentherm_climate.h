@@ -15,6 +15,8 @@ namespace esphome
     class OpenthermClimate : public climate::Climate, public Component
     {
     public:
+      // climate::Climate defaults to Off, which would block CH until setup() runs
+      OpenthermClimate() { this->mode = climate::CLIMATE_MODE_HEAT; }
       void setup() override;
       void dump_config() override;
 
