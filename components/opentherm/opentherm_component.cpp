@@ -565,6 +565,18 @@ namespace esphome
       uint16_t data = request & 0xFFFF;
       bool is_tsp = id == static_cast<uint8_t>(OpenThermMessageID::TSPindexTSPvalue);
 
+      for (const auto &tsp : tsp_params_)
+      {
+        if (!is_tsp || tsp.index != data >> 8)
+          continue;
+        int value = tspValue(tsp, data);
+        if (value < tsp.min_value || value > tsp.max_value)
+        {
+          rejectFrame(request, "TSP write out of range");
+          return false;
+        }
+      }
+
       uint16_t key = (id << 8) | (is_tsp ? data >> 8 : 0);
       unsigned long now = millis();
       auto pending = pending_writes_.find(key);
@@ -654,10 +666,11 @@ namespace esphome
       if (tsp.sensor != nullptr)
         tsp.sensor->publish_state(value);
 
-      if (value < tsp.min_value || value > tsp.max_value)
+      bool in_range = value >= tsp.min_value && value <= tsp.max_value;
+      if (!in_range)
         ESP_LOGW(TAG, "TSP 0x%02X = %d outside [%d, %d]", tsp.index, value, tsp.min_value, tsp.max_value);
-      else if (tsp.number != nullptr)
-        tsp.number->publish_state(value);
+      if (tsp.number != nullptr)
+        tsp.number->publish_state(in_range ? value : NAN);
     }
 
     bool OpenthermComponent::writeTsp(TspParam &tsp, int value)

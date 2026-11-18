@@ -411,7 +411,8 @@ TSP indexes are manufacturer-specific, so `tsp:` entries are never enabled by de
 - `index`, `signed` (int8 decode), `min_value`/`max_value`.
 - `poll_interval` (default 5min, min 1min): READ queued through `pending_fetches_` (`PendingFetch.data` = index << 8), result checked in `update()` by `checkTsp()`.
 - `sensor`, `number` (`OpenthermNumber`, header-only, control callback set in `setup()`): `writeTsp()` writes WRITE ID 11, requires WRITE_ACK, reads back to verify. Blocking, like climate setpoint writes.
-- No on-device guard: an out-of-range read logs WARN and is published to the sensor; restoring is left to an HA automation (sensor → number).
+- Thermostat WRITE ID 11 to a configured index with a value outside min..max is rejected in `checkThermostatWrite()` before confirmations (repetition does not help a bad value).
+- No on-device guard (owner decision): an out-of-range read logs WARN, the sensor gets the real value, the number gets NAN (unknown); restoring is an HA automation triggered on the sensor.
 
 Known mapping: Beretta Exclusive Green (MemberID 31), index 0xFA = heating curve offset, int8, -5..+5 (found by test, no public doc).
 

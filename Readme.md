@@ -224,8 +224,8 @@ opentherm:
 
 - `sensor`: value read every `poll_interval`, between thermostat frames.
 - `number`: HA control; writes, then reads back to verify. Values outside min..max are refused.
-- Thermostat writes to the index pass `frame_validation` like any Data-ID 11 write (2 identical frames for a change).
-- Out-of-range values are logged at WARN; restore them with an HA automation on the sensor that sets the number.
+- Thermostat writes to the index outside min..max are rejected (counted in `rejected_frames`); in-range changes need `write_confirmations` like any Data-ID 11 write.
+- Boiler value outside min..max: logged at WARN, `sensor` shows the real value, `number` shows unknown. A restore automation in HA must trigger on the `sensor`, then set the `number`.
 
 ## Troubleshooting
 
