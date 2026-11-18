@@ -66,6 +66,7 @@ namespace esphome
       void set_slave_ot_version_sensor(sensor::Sensor *sensor) { slave_ot_version_sensor_ = sensor; }
       void set_dropped_frames_sensor(sensor::Sensor *sensor) { dropped_frames_sensor_ = sensor; }
       void set_rejected_frames_sensor(sensor::Sensor *sensor) { rejected_frames_sensor_ = sensor; }
+      void set_block_ch_when_off(bool block) { block_ch_when_off_ = block; }
 
       // Frame validation
       void set_check_spare_bits(bool check) { check_spare_bits_ = check; }
@@ -211,6 +212,7 @@ namespace esphome
       // Frames with valid parity rejected by checkThermostatWrite/isValidReply/spare bits
       uint32_t rejected_frames_{0};
       bool check_spare_bits_{true};
+      bool block_ch_when_off_{false};
       bool check_response_id_{true};
       uint8_t write_confirmations_{2};
       // Last WRITE data passed to the boiler, keyed by data-id << 8 (| TSP index for data-id 11)

@@ -46,6 +46,7 @@ CONF_ROOM_TEMPERATURE = "room_temperature"
 CONF_ROOM_SETPOINT = "room_setpoint"
 CONF_HOT_WATER_CLIMATE = "hot_water_climate"
 CONF_HEATING_WATER_CLIMATE = "heating_water_climate"
+CONF_BLOCK_CH_WHEN_OFF = "block_ch_when_off"
 CONF_ROOM_CLIMATE = "room_climate"
 CONF_CURRENT_TEMPERATURE_SENSOR = "current_temperature_sensor"
 CONF_READ_SENSORS = "read_sensors"
@@ -248,7 +249,10 @@ CONFIG_SCHEMA = cv.Schema({
     ),
     cv.Optional(CONF_HEATING_WATER_CLIMATE): climate.climate_schema(
         OpenthermClimate,
-    ),
+    ).extend({
+        # Off was a no-op before; existing automations turning it off must not start blocking CH
+        cv.Optional(CONF_BLOCK_CH_WHEN_OFF, default=False): cv.boolean,
+    }),
     cv.Optional(CONF_ROOM_CLIMATE): climate.climate_schema(
         OpenthermClimate,
     ).extend({
@@ -410,6 +414,7 @@ async def to_code(config):
         await climate.register_climate(heating_var, heating_conf)
         cg.add(heating_var.set_climate_type(ClimateType.HEATING_WATER))
         cg.add(var.register_climate(heating_var))
+        cg.add(var.set_block_ch_when_off(heating_conf[CONF_BLOCK_CH_WHEN_OFF]))
 
     if CONF_ROOM_CLIMATE in config:
         room_conf = config[CONF_ROOM_CLIMATE]

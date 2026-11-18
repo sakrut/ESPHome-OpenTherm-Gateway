@@ -525,7 +525,7 @@ namespace esphome
 
       // Rewrite after validation: buildRequest() recomputes parity and would hide a corrupted frame
       if (id == OpenThermMessageID::Status && msg_type == OpenThermMessageType::READ_DATA &&
-          instance_->heating_water_climate_ != nullptr &&
+          instance_->block_ch_when_off_ && instance_->heating_water_climate_ != nullptr &&
           instance_->heating_water_climate_->mode == climate::CLIMATE_MODE_OFF)
         request = instance_->ot_->buildRequest(OpenThermRequestType::READ, OpenThermMessageID::Status,
                                                (request & 0xFFFF) & ~(1u << 8));

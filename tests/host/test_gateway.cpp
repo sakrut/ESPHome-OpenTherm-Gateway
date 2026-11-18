@@ -250,6 +250,7 @@ struct ClimateGateway : Gateway
   {
     heating.set_climate_type(ClimateType::HEATING_WATER);
     component.register_climate(&heating);
+    component.set_block_ch_when_off(true);
     start();
     heating.setup();
     heating.mode = mode;
@@ -283,6 +284,13 @@ static void status_relayed_before_climate_setup_is_unchanged()
   CHECK(gw.forwards(frame(READ_DATA, 0, 0x0300)));
 }
 
+static void ch_off_without_opt_in_forwards_status_unchanged()
+{
+  ClimateGateway gw(climate::CLIMATE_MODE_OFF);
+  gw.component.set_block_ch_when_off(false);
+  CHECK(gw.forwards(frame(READ_DATA, 0, 0x0300)));
+}
+
 static void ch_heat_forwards_status_unchanged()
 {
   ClimateGateway gw(climate::CLIMATE_MODE_HEAT);
@@ -307,7 +315,7 @@ static void set_heating_mode(climate::ClimateMode mode)
   heating.control(call);
 }
 
-static void climate_mode_survives_reboot_but_not_upgrade()
+static void climate_off_survives_reboot()
 {
   fake_preferences.clear();
   CHECK(boot_heating_climate() == climate::CLIMATE_MODE_HEAT);
@@ -338,8 +346,9 @@ int main()
   ch_off_clears_ch_enable_in_status();
   ch_off_does_not_launder_corrupted_status();
   ch_heat_forwards_status_unchanged();
+  ch_off_without_opt_in_forwards_status_unchanged();
   status_relayed_before_climate_setup_is_unchanged();
-  climate_mode_survives_reboot_but_not_upgrade();
+  climate_off_survives_reboot();
 
   std::printf(failures ? "%d check(s) failed\n" : "all host tests passed\n", failures);
   return failures ? 1 : 0;
