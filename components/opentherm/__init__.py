@@ -415,6 +415,7 @@ async def to_code(config):
         cg.add(heating_var.set_climate_type(ClimateType.HEATING_WATER))
         cg.add(var.register_climate(heating_var))
         cg.add(var.set_block_ch_when_off(heating_conf[CONF_BLOCK_CH_WHEN_OFF]))
+        cg.add(heating_var.set_persist_mode(heating_conf[CONF_BLOCK_CH_WHEN_OFF]))
 
     if CONF_ROOM_CLIMATE in config:
         room_conf = config[CONF_ROOM_CLIMATE]

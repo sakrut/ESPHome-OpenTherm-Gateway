@@ -7,11 +7,14 @@ namespace opentherm {
 static const char *const TAG = "opentherm.climate";
 
 void OpenthermClimate::setup() {
-  // Own key, not restore_state_(): firmware before CH blocking saved Off as a no-op, restoring it would block CH
-  mode_pref_ = global_preferences->make_preference<uint8_t>(0x0C4B0000u + static_cast<uint32_t>(climate_type_));
-  uint8_t saved;
-  this->mode = mode_pref_.load(&saved) && saved == climate::CLIMATE_MODE_OFF ? climate::CLIMATE_MODE_OFF
-                                                                              : climate::CLIMATE_MODE_HEAT;
+  // Own key, not restore_state_(): Off saved while it was a no-op must never block CH later
+  if (persist_mode_)
+  {
+    mode_pref_ = global_preferences->make_preference<uint8_t>(0x0C4B0000u + static_cast<uint32_t>(climate_type_));
+    uint8_t saved;
+    if (mode_pref_.load(&saved) && saved == climate::CLIMATE_MODE_OFF)
+      this->mode = climate::CLIMATE_MODE_OFF;
+  }
   // Don't set target_temperature to 0 - leave it as NAN until initialized
   // from boiler or set by user
   if (default_target_temperature_ > 0) {
@@ -49,7 +52,8 @@ void OpenthermClimate::control(const climate::ClimateCall &call) {
     ESP_LOGD(TAG, "Setting mode to %d", mode);
     this->mode = mode;
     uint8_t saved = mode;
-    mode_pref_.save(&saved);
+    if (persist_mode_)
+      mode_pref_.save(&saved);
     this->publish_state();
   }
   

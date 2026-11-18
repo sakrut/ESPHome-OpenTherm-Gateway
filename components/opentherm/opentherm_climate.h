@@ -26,6 +26,7 @@ namespace esphome
       void set_target_temperature_callback(std::function<bool(float)> callback) { target_temperature_setter_ = callback; }
       void set_climate_type(ClimateType type) { climate_type_ = type; }
       void set_read_only(bool read_only) { read_only_ = read_only; }
+      void set_persist_mode(bool persist) { persist_mode_ = persist; }
       ClimateType get_climate_type() const { return climate_type_; }
 
       // Initialize target temperature from boiler (called once on first update)
@@ -42,6 +43,7 @@ namespace esphome
       ClimateType climate_type_{};
       bool target_temperature_initialized_{false};
       bool read_only_{false};
+      bool persist_mode_{false};
       ESPPreferenceObject mode_pref_;
     };
 

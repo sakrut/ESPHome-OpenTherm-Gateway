@@ -280,6 +280,7 @@ static void status_relayed_before_climate_setup_is_unchanged()
   OpenthermClimate heating;
   heating.set_climate_type(ClimateType::HEATING_WATER);
   gw.component.register_climate(&heating);
+  gw.component.set_block_ch_when_off(true);
   gw.start();
   CHECK(gw.forwards(frame(READ_DATA, 0, 0x0300)));
 }
@@ -297,22 +298,32 @@ static void ch_heat_forwards_status_unchanged()
   CHECK(gw.forwards(frame(READ_DATA, 0, 0x0300)));
 }
 
-static climate::ClimateMode boot_heating_climate()
+static climate::ClimateMode boot_heating_climate(bool persist = true)
 {
   OpenthermClimate heating;
   heating.set_climate_type(ClimateType::HEATING_WATER);
+  heating.set_persist_mode(persist);
   heating.setup();
   return heating.mode;
 }
 
-static void set_heating_mode(climate::ClimateMode mode)
+static void set_heating_mode(climate::ClimateMode mode, bool persist = true)
 {
   OpenthermClimate heating;
   heating.set_climate_type(ClimateType::HEATING_WATER);
+  heating.set_persist_mode(persist);
   heating.setup();
   climate::ClimateCall call;
   call.mode = mode;
   heating.control(call);
+}
+
+static void climate_off_is_not_persisted_without_opt_in()
+{
+  fake_preferences.clear();
+  set_heating_mode(climate::CLIMATE_MODE_OFF, false);
+  CHECK(fake_preferences.empty());
+  CHECK(boot_heating_climate() == climate::CLIMATE_MODE_HEAT);
 }
 
 static void climate_off_survives_reboot()
@@ -349,6 +360,7 @@ int main()
   ch_off_without_opt_in_forwards_status_unchanged();
   status_relayed_before_climate_setup_is_unchanged();
   climate_off_survives_reboot();
+  climate_off_is_not_persisted_without_opt_in();
 
   std::printf(failures ? "%d check(s) failed\n" : "all host tests passed\n", failures);
   return failures ? 1 : 0;

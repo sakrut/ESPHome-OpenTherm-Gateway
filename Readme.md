@@ -191,7 +191,7 @@ opentherm:
 
 - **Heating climate Off** - gateway clears CH enable bit in thermostat's Status request (Data-ID 0)
 - **Heating climate Heat** - requests forwarded unchanged (default on first boot)
-- Off set on this firmware survives reboot/OTA. On ESP8266 power loss needs `restore_from_flash: true`, and a change is written to flash only after `preferences: flash_write_interval` (default 1 min)
+- With the flag on, Off survives reboot/OTA (without it nothing is stored). On ESP8266 power loss needs `restore_from_flash: true`, and a change is written to flash only after `preferences: flash_write_interval` (default 1 min)
 - With `block_ch_when_off: true`, HA automations, scenes or voice commands that turn this climate off really block CH
 - Upgrading from an older version always starts in Heat, even if HA showed Off before
 - Thermostat keeps controlling comfort whenever heating is allowed
