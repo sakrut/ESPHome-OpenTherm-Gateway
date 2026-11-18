@@ -523,6 +523,13 @@ namespace esphome
       if (msg_type == OpenThermMessageType::WRITE_DATA && !instance_->checkThermostatWrite(request))
         return;
 
+      // Rewrite after validation: buildRequest() recomputes parity and would hide a corrupted frame
+      if (id == OpenThermMessageID::Status && msg_type == OpenThermMessageType::READ_DATA &&
+          instance_->block_ch_when_off_ && instance_->heating_water_climate_ != nullptr &&
+          instance_->heating_water_climate_->mode == climate::CLIMATE_MODE_OFF)
+        request = instance_->ot_->buildRequest(OpenThermRequestType::READ, OpenThermMessageID::Status,
+                                               (request & 0xFFFF) & ~(1u << 8));
+
       unsigned long response = instance_->ot_->sendRequest(request);
       bool relayed = instance_->isValidReply(request, response);
       // Not answering makes the thermostat time out and retry instead of acting on garbage

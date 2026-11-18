@@ -2,6 +2,7 @@
 
 #include "esphome/core/component.h"
 #include "esphome/components/climate/climate.h"
+#include "esphome/core/preferences.h"
 #include <functional>
 
 namespace esphome
@@ -14,6 +15,8 @@ namespace esphome
     class OpenthermClimate : public climate::Climate, public Component
     {
     public:
+      // climate::Climate defaults to Off, which would block CH until setup() runs
+      OpenthermClimate() { this->mode = climate::CLIMATE_MODE_HEAT; }
       void setup() override;
       void dump_config() override;
 
@@ -23,6 +26,7 @@ namespace esphome
       void set_target_temperature_callback(std::function<bool(float)> callback) { target_temperature_setter_ = callback; }
       void set_climate_type(ClimateType type) { climate_type_ = type; }
       void set_read_only(bool read_only) { read_only_ = read_only; }
+      void set_persist_mode(bool persist) { persist_mode_ = persist; }
       ClimateType get_climate_type() const { return climate_type_; }
 
       // Initialize target temperature from boiler (called once on first update)
@@ -36,9 +40,11 @@ namespace esphome
     protected:
       float default_target_temperature_{0};
       std::function<bool(float)> target_temperature_setter_;
-      ClimateType climate_type_;
+      ClimateType climate_type_{};
       bool target_temperature_initialized_{false};
       bool read_only_{false};
+      bool persist_mode_{false};
+      ESPPreferenceObject mode_pref_;
     };
 
   } // namespace opentherm

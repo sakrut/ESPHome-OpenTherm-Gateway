@@ -8,6 +8,7 @@ An ESPHome external component for OpenTherm boilers using [Ihor Melnyk's adapter
 
 - ✅ **Monitor**: Status (flame, heating, DHW, fault), temperatures, pressure, modulation
 - ✅ **Control**: Override heating/DHW temperature setpoints via Home Assistant
+- ✅ **Block heating**: Opt-in `block_ch_when_off`: heating climate Off blocks CH regardless of thermostat
 - ✅ **Smart persistence**: User-set temperatures don't reset (fixed for heating curves)
 - ✅ **Diagnostics**: Max setpoints, OEM fault/diagnostic codes, OpenTherm versions
 - ✅ **Reset button**: Remote BLOR (Boiler Lock-Out Reset) command
@@ -176,6 +177,25 @@ button:
 - Boilers with heating curves calculate water temp based on outdoor temp
 - `room_climate` is read-only and follows thermostat setpoint (TrSet)
 - `room_climate.current_temperature` priority: external sensor, then OpenTherm Tr
+
+### Blocking Central Heating
+
+Opt-in, because Off used to do nothing and existing automations may turn it off:
+
+```yaml
+opentherm:
+  heating_water_climate:
+    name: "Central Heating"
+    block_ch_when_off: true   # default false: Off does nothing, as before
+```
+
+- **Heating climate Off** - gateway clears CH enable bit in thermostat's Status request (Data-ID 0)
+- **Heating climate Heat** - requests forwarded unchanged (default on first boot)
+- With the flag on, Off survives reboot/OTA (without it nothing is stored). On ESP8266 power loss needs `restore_from_flash: true`, and a change is written to flash only after `preferences: flash_write_interval` (default 1 min)
+- With `block_ch_when_off: true`, HA automations, scenes or voice commands that turn this climate off really block CH
+- Upgrading from an older version always starts in Heat, even if HA showed Off before
+- Thermostat keeps controlling comfort whenever heating is allowed
+- TSet override is overwritten by the thermostat's next TSet write - use Off for reliable blocking
 
 ### Smart Caching
 

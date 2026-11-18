@@ -148,6 +148,7 @@ opentherm:
   heating_water_climate:
     name: "${friendly_name} Central Heating"
     id: central_heating
+    block_ch_when_off: true
 
 # Add a button to force a status update (optional)
 button:

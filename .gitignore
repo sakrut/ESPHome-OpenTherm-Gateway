@@ -12,3 +12,4 @@
 .claude/
 
 **/__pycache__/
+host_tests

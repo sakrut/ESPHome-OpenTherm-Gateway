@@ -48,6 +48,8 @@ Key implementation details:
 
 Each climate entity uses a callback pattern to communicate temperature changes back to the main component, which then sends OpenTherm WRITE commands.
 
+Heating climate mode is persisted only with `block_ch_when_off: true` (`persist_mode_`), in its own preference key (`mode_pref_`, saved in `control()`), not `restore_state_()`: older firmware saved Off as a no-op, and restoring it after an upgrade would silently block CH. No saved key = HEAT. With `heating_water_climate.block_ch_when_off: true` (default false, opt-in because Off used to be a no-op), Off blocks CH: `processRequest()` clears the master CH enable bit (bit 8) in the thermostat's READ Status (Data-ID 0) frame, after frame validation (`buildRequest()` recomputes parity, so rewriting first would hide a corrupted frame). The boiler's Status response echoes the cleared bit back to the thermostat.
+
 ## Build and Test Commands
 
 ### Local Build with Docker (Recommended)
@@ -74,6 +76,14 @@ echo -e "wifi_ssid: 'test_ssid'\nwifi_password: 'test_password'\nesphome_fallbac
 esphome compile build.yaml
 ```
 
+### Host Tests (gateway logic, no device)
+`tests/host/test_gateway.cpp` compiles the real `opentherm_component.cpp` and `opentherm_climate.cpp` against stubs in `tests/host/stubs` (fake ESPHome entities, fake `OpenTherm` bus recording frames sent to boiler/thermostat, fake `millis()`). Covers frame validation, write confirmations, TSP read/set/range, CH blocking, climate mode restore. New library or ESPHome calls in the component need a matching stub.
+```bash
+g++ -std=gnu++20 -Wall -Wextra -I tests/host/stubs -I components/opentherm tests/host/test_gateway.cpp components/opentherm/opentherm_component.cpp components/opentherm/opentherm_climate.cpp -o host_tests && ./host_tests
+# Windows without g++:
+docker run --rm -v "${PWD}":/src -w /src gcc:14 sh -c "g++ -std=gnu++20 -Wall -Wextra -I tests/host/stubs -I components/opentherm tests/host/test_gateway.cpp components/opentherm/opentherm_component.cpp components/opentherm/opentherm_climate.cpp -o host_tests && /src/host_tests"
+```
+
 ### Validation Without Full Build
 ```bash
 # Validate Python syntax
@@ -90,7 +100,7 @@ esphome config build.yaml
 The GitHub Actions workflow (`.github/workflows/build.yml`) automatically builds `build.yaml` on push/PR to main. The workflow:
 1. Creates a dummy `secrets.yaml` with placeholder values
 2. Installs the latest ESPHome release from PyPI (avoids Docker Hub pull rate limits; catches upstream breaking changes early)
-3. Validates the component compiles successfully
+3. Runs host tests (`tests/host`, g++), then validates the component compiles successfully
 4. Compiles `tests/minimal_hub/minimal_hub_test.yaml` (hub-only config with no top-level platform sections, regression test for issue #17)
 5. Compiles `tests/tsp/tsp_test.yaml` (`frame_validation`, `rejected_frames`, `tsp` with sensor/number)
 
@@ -461,7 +471,7 @@ logger:
 - **Status requests** are periodic and critical - they update `last_status_response_` which feeds all binary sensors
 - **Temperature reads** use smart caching - if thermostat requested the value recently (<1 min), cached value is used
 - **Temperature writes** happen immediately when climate entity target is changed, with immediate verification
-- The component doesn't modify requests from the thermostat, it only intercepts, forwards, and caches responses (corrupt INVALID/TIMEOUT frames are dropped; frames failing `frame_validation` or unconfirmed protected writes are not forwarded)
+- The component forwards thermostat requests unchanged, except clearing the CH enable bit in Status while `heating_water_climate` is Off and `block_ch_when_off: true` (corrupt INVALID/TIMEOUT frames are dropped; frames failing `frame_validation` or unconfirmed protected writes are not forwarded)
 
 ### Temperature Setpoint Verification
 
